@@ -5,6 +5,25 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-22
 
+### Competitor feature adoption
+
+- **Decision:** Following SEAN's "adopt as many features as possible"
+  after a survey of 14+ existing Windows room/home-design products,
+  `docs/FEATURE_ADOPTION.md` maps their features onto the milestones:
+  table stakes to match (wall thickness, imperial units, dimension
+  lines, blueprint tracing, scaled print), differentiators to adopt
+  (custom-object builder, GLB/OBJ import, offline photoreal stills,
+  quantities-only materials lists), and a rare/advanced backlog.
+- **Why:** The survey showed most "advanced" competitors are cloud-
+  first with metered rendering — unmetered, watermark-free, fully
+  offline work is itself the sharpest differentiator available.
+- **Consequences:** Three competitor staples are NOT adopted because
+  they collide with SEAN's recorded decisions: cost estimators/priced
+  lists (no-prices rule), cabinet configurators (configurator
+  exclusion), photo/LiDAR/AI scan-to-plan (photo/scan exclusion).
+  Adopting any of those needs SEAN to explicitly reverse the
+  underlying decision.
+
 ### Full product & engineering plan adopted
 
 - **Decision:** `docs/PRODUCT_AND_ENGINEERING_PLAN.md` is the project's
