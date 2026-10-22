@@ -29,7 +29,7 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 ### Draw the room to scale
 
 - Set the room's real **width, depth and ceiling height**, plus its **wall thickness** (drawn to scale on the plan; room sizes stay clear internal dimensions).
-- Rooms are rectangular in this version — see [Limitations](#limitations-and-known-issues).
+- **Not just rectangles**: cut a notch out of any corner to make an **L-shaped** room (or a U/C shape with more notches) — floor area, materials, furniture placement and the walls in 2D, 3D and exports all follow the real outline. Restore the plain rectangle whenever you like.
 - **Dimension lines** with real measurements sit on the plan while you work.
 - Type sizes in **metric or imperial** — `5 m`, `500 cm`, `2500 mm`, `10' 6"`, `126"` all work — and flip the whole app between the two with the Units toggle.
 
@@ -86,7 +86,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.4.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.5.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -137,7 +137,7 @@ roomforge path\to\my-room.roomforge
 
 | Format | What it is |
 | --- | --- |
-| `.roomforge` | A plan file: versioned, human-readable JSON (format version 1). Written safely — a temporary file is swapped into place, so an interrupted save shouldn't corrupt an existing plan. Files from a newer RoomForge version are refused with a clear message rather than misread. |
+| `.roomforge` | A plan file: versioned, human-readable JSON (format version 2; version 1 files still open). Written safely — a temporary file is swapped into place, so an interrupted save shouldn't corrupt an existing plan. Files from a newer RoomForge version are refused with a clear message rather than misread. |
 | `.svg` (export) | To-scale plan drawing; the 1:50 and 1:100 variants carry physical sizes for exact printing. |
 | `.csv` (export) | The grouped item list: item, category, size, quantity. |
 | `.html` (export) | Self-contained printable sheet: plan, item list, fittings schedule and notes. |
@@ -178,7 +178,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-31 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, and the materials quantities. Run them with:
+34 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, and the materials quantities. Run them with:
 
 ```sh
 cargo test --locked
@@ -205,7 +205,7 @@ There are **no prices anywhere in RoomForge** — no item prices, no totals, and
 
 ## Limitations and known issues
 
-- **One rectangular room per plan.** L-shaped rooms, free-form wall segments and multi-room/multi-floor plans are designed (see the plan document) but not built yet.
+- **One room per plan, rectilinear shapes only.** Corner notches give L/U/C shapes, but angled walls, free-form wall drawing, openings on notch edges, and multi-room/multi-floor plans are not built yet (multi-room is designed in the plan document).
 - **Exports are metric**, even when the app is displaying imperial (the app itself is fully dual-unit).
 - **No multi-page print tiling yet** — a big room at 1:50 may need a large sheet or a print shop; 1:100 fits most rooms on A4/Letter.
 - **No installer wizard and no code signing yet** — the release is a portable zip/exe, and SmartScreen will warn on first run until signing is arranged.
@@ -214,7 +214,7 @@ There are **no prices anywhere in RoomForge** — no item prices, no totals, and
 
 ## Roadmap
 
-Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). In short: L-shaped rooms and wall segments (file format v2) → materials and custom textures → a simple custom-object builder → lighting and offline rendered stills → a first-person walkthrough → import of GLB/OBJ models. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
+Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). Already delivered from that list: L-shaped rooms (corner notches, format v2), the custom-object builder, and the quantities-only materials list. Still ahead: custom textures and materials → lighting and offline rendered stills → a first-person walkthrough → multi-room plans → import of GLB/OBJ models. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
 
 ## Contributing
 
