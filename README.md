@@ -34,7 +34,11 @@ decision — RoomForge is for planning a layout, not for shopping.
 
 - Room editor with walls, doors, windows, sockets, pipes/water points
   and radiators
-- Measurements in metres (imperial display is planned), with snap-to-grid
+- Metric and imperial measurements (type 5 m, 500 cm or 10' 6"), with
+  snap-to-grid and dimension lines on the plan
+- Wall thickness, drawn on the plan to scale
+- Text notes pinned to the plan, included in exports
+- Door-swing clearance warnings, alongside the overlap warnings
   and dimension labels
 - Furniture catalog covering beds, seating, tables, storage, kitchen,
   bathroom, lighting and decor — every item with real-world dimensions
