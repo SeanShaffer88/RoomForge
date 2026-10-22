@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-22
+
+### Added
+
+- **Non-rectangular rooms (file format v2).** Cut a rectangular notch
+  out of any corner of the room — one notch makes an L-shape, more
+  make U/C shapes — with independent sizes along each wall, and
+  restore the plain rectangle at any time. Everything adapts: floor
+  area and materials use the true outline, furniture and notes are
+  kept inside the real shape, doors/windows/services re-clamp to the
+  wall runs that still exist, and the 2D plan, 3D view and SVG export
+  all draw the actual outline (including walls on the notch edges).
+
+### Changed
+
+- Project files are now format version 2. Plans saved by any earlier
+  release load unchanged (they simply have no outline) and are saved
+  back as v2. Older RoomForge versions will refuse v2 files with the
+  usual "saved by a newer version" message.
+
 ## [0.4.0] - 2026-10-22
 
 The third adoption batch from the competitor feature survey.
