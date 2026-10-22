@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-22
+
+The third adoption batch from the competitor feature survey.
+
+### Added
+
+- Custom-object builder: define your own furniture (name, group,
+  width × depth × height, colour) under "Your items" in the catalog
+  panel, then place it like any catalog piece. Definitions are stored
+  in the plan file, so they travel when you share a plan.
+- Materials list with quantities only: floor/ceiling area, wall area
+  gross and net of doors/windows, skirting length and perimeter —
+  shown in the item-list view and on the print sheet. Areas and
+  lengths, never money.
+- Room templates in the New menu: furnished Living room, Bedroom and
+  Home office starting points, alongside the empty room.
+
 ## [0.3.0] - 2026-10-22
 
 The second adoption batch from the competitor feature survey.
