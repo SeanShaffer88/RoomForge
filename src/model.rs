@@ -345,6 +345,51 @@ impl Underlay {
     }
 }
 
+/// A furniture definition the user created themselves (the
+/// custom-object builder). Stored in the project so plans stay
+/// portable; placed instances reference it by `custom-<id>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CustomItemDef {
+    pub id: u64,
+    pub name: String,
+    pub category: String,
+    pub width_m: f64,
+    pub depth_m: f64,
+    pub height_m: f64,
+    pub rgb: [u8; 3],
+}
+
+impl CustomItemDef {
+    pub fn clamp_dims(&mut self) {
+        self.width_m = self.width_m.clamp(0.05, 10.0);
+        self.depth_m = self.depth_m.clamp(0.05, 10.0);
+        self.height_m = self.height_m.clamp(0.05, 5.0);
+        if self.name.trim().is_empty() {
+            self.name = "Custom item".to_string();
+        }
+        if self.category.trim().is_empty() {
+            self.category = "Other".to_string();
+        }
+    }
+    /// The catalog id placed instances of this definition carry.
+    pub fn catalog_id(&self) -> String {
+        format!("custom-{}", self.id)
+    }
+}
+
+/// Quantities for buying materials — areas and lengths only.
+/// There are deliberately no prices or costs anywhere in RoomForge.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MaterialsReport {
+    pub floor_area_m2: f64,
+    pub ceiling_area_m2: f64,
+    pub wall_gross_m2: f64,
+    pub openings_m2: f64,
+    pub wall_net_m2: f64,
+    pub skirting_m: f64,
+    pub perimeter_m: f64,
+}
+
 /// A whole design: one room, its openings/services, and its furniture.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
@@ -357,6 +402,8 @@ pub struct Project {
     pub annotations: Vec<Annotation>,
     #[serde(default)]
     pub underlay: Option<Underlay>,
+    #[serde(default)]
+    pub custom_items: Vec<CustomItemDef>,
     /// Next id to hand out. Persisted so ids never repeat after a reload.
     pub next_id: u64,
 }
@@ -371,6 +418,7 @@ impl Default for Project {
             items: Vec::new(),
             annotations: Vec::new(),
             underlay: None,
+            custom_items: Vec::new(),
             next_id: 1,
         }
     }
@@ -411,6 +459,9 @@ impl Project {
         for a in &mut p.annotations {
             a.clamp_inside(&room);
         }
+        for c in &mut p.custom_items {
+            c.clamp_dims();
+        }
         let max_id = p
             .items
             .iter()
@@ -418,6 +469,7 @@ impl Project {
             .chain(p.openings.iter().map(|o| o.id))
             .chain(p.services.iter().map(|s| s.id))
             .chain(p.annotations.iter().map(|a| a.id))
+            .chain(p.custom_items.iter().map(|c| c.id))
             .max()
             .unwrap_or(0);
         if p.next_id <= max_id {
@@ -453,6 +505,32 @@ impl Project {
         }
         rows.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
         rows
+    }
+
+    /// Material quantities for the room shell: floor/ceiling area,
+    /// wall area before and after subtracting doors and windows, and
+    /// skirting length (perimeter minus door widths). Quantities
+    /// only — never prices.
+    pub fn materials(&self) -> MaterialsReport {
+        let r = &self.room;
+        let perimeter = 2.0 * (r.width_m + r.depth_m);
+        let wall_gross = perimeter * r.height_m;
+        let openings: f64 = self.openings.iter().map(|o| o.width_m * o.height_m).sum();
+        let door_widths: f64 = self
+            .openings
+            .iter()
+            .filter(|o| o.kind == OpeningKind::Door)
+            .map(|o| o.width_m)
+            .sum();
+        MaterialsReport {
+            floor_area_m2: r.area_m2(),
+            ceiling_area_m2: r.area_m2(),
+            wall_gross_m2: wall_gross,
+            openings_m2: openings,
+            wall_net_m2: (wall_gross - openings).max(0.0),
+            skirting_m: (perimeter - door_widths).max(0.0),
+            perimeter_m: perimeter,
+        }
     }
 
     /// Human-readable warnings: furniture overlaps and items covering a
@@ -656,6 +734,61 @@ mod tests {
         // Chair far from the door: no swing warning.
         let p = door_and_item(4.0, 3.0);
         assert!(!p.warnings().iter().any(|w| w.contains("swing")));
+    }
+
+    #[test]
+    fn materials_quantities() {
+        let mut p = Project::default(); // 5 x 4 m, 2.5 ceiling
+        let m = p.materials();
+        assert!((m.floor_area_m2 - 20.0).abs() < 1e-9);
+        assert!((m.perimeter_m - 18.0).abs() < 1e-9);
+        assert!((m.wall_gross_m2 - 45.0).abs() < 1e-9);
+        assert!((m.wall_net_m2 - 45.0).abs() < 1e-9);
+        let did = p.alloc_id();
+        p.openings.push(Opening {
+            id: did,
+            kind: OpeningKind::Door,
+            wall: Wall::South,
+            offset_m: 0.5,
+            width_m: 0.9,
+            sill_m: 0.0,
+            height_m: 2.1,
+            swings_in: true,
+        });
+        let wid = p.alloc_id();
+        p.openings.push(Opening {
+            id: wid,
+            kind: OpeningKind::Window,
+            wall: Wall::North,
+            offset_m: 1.0,
+            width_m: 1.5,
+            sill_m: 0.9,
+            height_m: 1.2,
+            swings_in: false,
+        });
+        let m = p.materials();
+        assert!((m.openings_m2 - (1.89 + 1.8)).abs() < 1e-9);
+        assert!((m.wall_net_m2 - (45.0 - 3.69)).abs() < 1e-9);
+        assert!((m.skirting_m - (18.0 - 0.9)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn custom_items_roundtrip_and_clamp() {
+        let mut p = Project::default();
+        let id = p.alloc_id();
+        p.custom_items.push(CustomItemDef {
+            id,
+            name: "Aquarium stand".into(),
+            category: "Storage".into(),
+            width_m: 99.0,
+            depth_m: 0.4,
+            height_m: 0.7,
+            rgb: [10, 20, 30],
+        });
+        let back = Project::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back.custom_items.len(), 1);
+        assert_eq!(back.custom_items[0].width_m, 10.0); // clamped
+        assert_eq!(back.custom_items[0].catalog_id(), format!("custom-{id}"));
     }
 
     #[test]
