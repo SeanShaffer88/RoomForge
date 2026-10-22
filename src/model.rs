@@ -82,12 +82,17 @@ impl Opening {
 }
 
 /// A service point fixed to a wall: electrical socket, water pipe /
-/// drain, or a radiator that furniture must not cover.
+/// drain, a radiator that furniture must not cover, a light switch,
+/// a TV aerial point, a network point, or a thermostat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServiceKind {
     Socket,
     Pipe,
     Radiator,
+    Switch,
+    TvPoint,
+    Network,
+    Thermostat,
 }
 
 impl ServiceKind {
@@ -96,6 +101,10 @@ impl ServiceKind {
             ServiceKind::Socket => "Socket",
             ServiceKind::Pipe => "Pipe / water",
             ServiceKind::Radiator => "Radiator",
+            ServiceKind::Switch => "Light switch",
+            ServiceKind::TvPoint => "TV point",
+            ServiceKind::Network => "Network point",
+            ServiceKind::Thermostat => "Thermostat",
         }
     }
     /// Floor footprint width along the wall, metres.
@@ -104,6 +113,10 @@ impl ServiceKind {
             ServiceKind::Socket => 0.15,
             ServiceKind::Pipe => 0.2,
             ServiceKind::Radiator => 1.0,
+            ServiceKind::Switch => 0.09,
+            ServiceKind::TvPoint => 0.12,
+            ServiceKind::Network => 0.12,
+            ServiceKind::Thermostat => 0.12,
         }
     }
     /// How far it projects into the room, metres.
@@ -112,7 +125,29 @@ impl ServiceKind {
             ServiceKind::Socket => 0.05,
             ServiceKind::Pipe => 0.1,
             ServiceKind::Radiator => 0.18,
+            ServiceKind::Switch => 0.03,
+            ServiceKind::TvPoint => 0.04,
+            ServiceKind::Network => 0.04,
+            ServiceKind::Thermostat => 0.04,
         }
+    }
+    /// Plan symbol: (short text, marker colour). One source of truth
+    /// for the GUI and the SVG export.
+    pub fn symbol(self) -> (&'static str, [u8; 3]) {
+        match self {
+            ServiceKind::Socket => ("E", [246, 195, 67]),
+            ServiceKind::Pipe => ("W", [59, 130, 196]),
+            ServiceKind::Radiator => ("R", [196, 59, 59]),
+            ServiceKind::Switch => ("S", [240, 225, 130]),
+            ServiceKind::TvPoint => ("TV", [150, 200, 245]),
+            ServiceKind::Network => ("N", [140, 220, 170]),
+            ServiceKind::Thermostat => ("TH", [235, 160, 90]),
+        }
+    }
+    /// Furniture standing over this kind is a real problem (heat,
+    /// water access), not just untidy.
+    pub fn blocks_furniture(self) -> bool {
+        matches!(self, ServiceKind::Pipe | ServiceKind::Radiator)
     }
 }
 
@@ -250,6 +285,66 @@ impl PlacedItem {
     }
 }
 
+/// A floor-plan image kept under the drawing for tracing (a scanned
+/// or photographed plan). The original image bytes are embedded
+/// base64 so a plan file stays self-contained and portable. The
+/// mapping is rotation-free (plans are axis-aligned): `origin` is the
+/// room position of the image's top-left corner; image y grows
+/// downward, room y grows north, hence the minus in the transform.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Underlay {
+    /// Original file bytes (PNG/JPEG/BMP), base64-encoded.
+    pub data_b64: String,
+    pub width_px: u32,
+    pub height_px: u32,
+    pub origin_x_m: f64,
+    pub origin_y_m: f64,
+    pub m_per_px: f64,
+    pub opacity: f32,
+}
+
+impl Underlay {
+    /// Fit the image exactly over the room.
+    pub fn fit(room: &Room, width_px: u32, height_px: u32, data_b64: String) -> Underlay {
+        Underlay {
+            data_b64,
+            width_px,
+            height_px,
+            origin_x_m: 0.0,
+            origin_y_m: room.depth_m,
+            m_per_px: room.width_m / width_px.max(1) as f64,
+            opacity: 0.55,
+        }
+    }
+    /// Image pixel → room coordinates.
+    pub fn room_from_px(&self, px: f64, py: f64) -> (f64, f64) {
+        (
+            self.origin_x_m + px * self.m_per_px,
+            self.origin_y_m - py * self.m_per_px,
+        )
+    }
+    /// Room coordinates → image pixel.
+    pub fn px_from_room(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            (x - self.origin_x_m) / self.m_per_px,
+            (self.origin_y_m - y) / self.m_per_px,
+        )
+    }
+    /// Two-point calibration: the user marked two image points and
+    /// states the real distance between them. The first point keeps
+    /// its current room position; the scale is recomputed.
+    pub fn calibrate(&mut self, a_px: (f64, f64), b_px: (f64, f64), real_distance_m: f64) {
+        let d_px = ((b_px.0 - a_px.0).powi(2) + (b_px.1 - a_px.1).powi(2)).sqrt();
+        if d_px < 1.0 || real_distance_m <= 0.0 {
+            return;
+        }
+        let anchor_room = self.room_from_px(a_px.0, a_px.1);
+        self.m_per_px = real_distance_m / d_px;
+        self.origin_x_m = anchor_room.0 - a_px.0 * self.m_per_px;
+        self.origin_y_m = anchor_room.1 + a_px.1 * self.m_per_px;
+    }
+}
+
 /// A whole design: one room, its openings/services, and its furniture.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
@@ -260,6 +355,8 @@ pub struct Project {
     pub items: Vec<PlacedItem>,
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    #[serde(default)]
+    pub underlay: Option<Underlay>,
     /// Next id to hand out. Persisted so ids never repeat after a reload.
     pub next_id: u64,
 }
@@ -273,6 +370,7 @@ impl Default for Project {
             services: Vec::new(),
             items: Vec::new(),
             annotations: Vec::new(),
+            underlay: None,
             next_id: 1,
         }
     }
@@ -373,8 +471,8 @@ impl Project {
             }
         }
         for s in &self.services {
-            if s.kind == ServiceKind::Socket {
-                continue; // sockets sit proud of the wall; furniture may stand over them
+            if !s.kind.blocks_furniture() {
+                continue; // flat wall points may legitimately sit behind furniture
             }
             let (sx, sy) = s.centre(&self.room);
             for it in &self.items {
@@ -558,6 +656,30 @@ mod tests {
         // Chair far from the door: no swing warning.
         let p = door_and_item(4.0, 3.0);
         assert!(!p.warnings().iter().any(|w| w.contains("swing")));
+    }
+
+    #[test]
+    fn underlay_fit_and_calibration() {
+        let room = Room::default(); // 5 x 4
+        let mut u = Underlay::fit(&room, 1000, 800, "AAAA".into());
+        // Fit: image corners land on room corners.
+        assert_eq!(u.room_from_px(0.0, 0.0), (0.0, 4.0));
+        let (x, y) = u.room_from_px(1000.0, 800.0);
+        assert!((x - 5.0).abs() < 1e-9 && y.abs() < 1e-9);
+        // Calibrate: two marks 500 px apart are really 3 m; the first
+        // mark's room position must not move.
+        let before = u.room_from_px(100.0, 100.0);
+        u.calibrate((100.0, 100.0), (600.0, 100.0), 3.0);
+        assert!((u.m_per_px - 0.006).abs() < 1e-12);
+        let after = u.room_from_px(100.0, 100.0);
+        assert!((after.0 - before.0).abs() < 1e-9 && (after.1 - before.1).abs() < 1e-9);
+        let (bx, by) = u.room_from_px(600.0, 100.0);
+        let dist = ((bx - after.0).powi(2) + (by - after.1).powi(2)).sqrt();
+        assert!((dist - 3.0).abs() < 1e-9);
+        // Inverse transform round-trips.
+        let (rx, ry) = u.room_from_px(250.0, 300.0);
+        let (px, py) = u.px_from_room(rx, ry);
+        assert!((px - 250.0).abs() < 1e-6 && (py - 300.0).abs() < 1e-6);
     }
 
     #[test]
