@@ -1,0 +1,38 @@
+[package]
+name = "roomforge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+authors = ["Sean Shaffer"]
+description = "RoomForge — draw a room to scale, arrange furniture in 2D, view it in 3D, and print or share the plan and item list."
+license = "MIT"
+repository = "https://github.com/SeanShaffer88/RoomForge"
+keywords = ["windows", "room", "planner", "interior", "floor-plan"]
+categories = ["gui"]
+
+[lib]
+name = "roomforge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "roomforge"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+egui = { version = "0.33", default-features = false, features = ["default_fonts"] }
+# Renderer: glow (OpenGL), deliberately NOT wgpu — see DECISIONS.md.
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "accesskit"] }
+
+[target.'cfg(not(windows))'.dependencies]
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "accesskit", "x11"] }
+
+[target.'cfg(windows)'.dependencies]
+rfd = "0.15"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
