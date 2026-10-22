@@ -42,6 +42,8 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 ### Furnish it in 2D
 
 - A built-in catalog of **49 generic pieces** in 8 groups (Seating, Tables, Beds, Storage, Kitchen, Bathroom, Lighting & decor, Other), each with real-world dimensions. Search the catalog, click a piece, click in the room to place it; hold **Shift** to place several.
+- **Build your own pieces**: the catalog panel's "Your items" section lets you define furniture with your own name and exact size — an aquarium stand, a dog crate, that odd-shaped desk — and place it like any catalog piece. Your definitions are saved inside the plan file.
+- **Templates**: the New menu offers furnished Living room, Bedroom and Home office starting points, plus an empty room.
 - Drag to move, rotate in 15° steps (**R**) or 90° steps (**Shift+R**), resize, recolour, duplicate and delete. Optional **5 cm snapping** while dragging.
 - **Undo and redo** (100 steps) for everything, and an **autosave every few seconds** — if the program closes unexpectedly, your last session is recovered on the next start.
 
@@ -55,6 +57,7 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 
 - One click switches to a **3D doll's-house view** of the same room: drag to orbit, with sliders for yaw and pitch.
 - The **Item list view** shows everything placed, grouped and counted, with sizes — and the doors/windows/services schedule and any warnings.
+- A **materials list with quantities only**: floor and ceiling area, wall area before and after subtracting doors and windows, skirting length and perimeter — enough to buy paint and flooring by. (Quantities, never costs: see the no-prices rule below.)
 - Pin **text notes** to the plan (numbered markers); they appear in the list view and in exports.
 - **Exports**: a to-scale plan (SVG), true-scale print plans at **1:50** and **1:100** (print at 100% and they measure exactly), the item list (CSV), and a printable plan + list sheet (HTML — open in a browser, print or save as PDF).
 
@@ -83,7 +86,9 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-There is no prebuilt installer published yet, so for now you build it from source (it takes a couple of minutes):
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.4.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+
+**Or build from source** (a couple of minutes):
 
 1. Install Rust from [rustup.rs](https://rustup.rs) if you don't have it.
 2. Download or clone this repository.
@@ -93,7 +98,7 @@ There is no prebuilt installer published yet, so for now you build it from sourc
 cargo run --release
 ```
 
-That builds and launches RoomForge. The built program is at `target\release\roomforge.exe` — you can copy it anywhere and run it; no administrator rights are needed. You can also open a plan directly:
+The built program is at `target\release\roomforge.exe`. Either way, you can open a plan directly:
 
 ```sh
 roomforge path\to\my-room.roomforge
@@ -173,7 +178,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-29 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, the catalog, unit parsing/formatting, exports, and underlay calibration maths. Run them with:
+31 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, and the materials quantities. Run them with:
 
 ```sh
 cargo test --locked
@@ -203,7 +208,7 @@ There are **no prices anywhere in RoomForge** — no item prices, no totals, and
 - **One rectangular room per plan.** L-shaped rooms, free-form wall segments and multi-room/multi-floor plans are designed (see the plan document) but not built yet.
 - **Exports are metric**, even when the app is displaying imperial (the app itself is fully dual-unit).
 - **No multi-page print tiling yet** — a big room at 1:50 may need a large sheet or a print shop; 1:100 fits most rooms on A4/Letter.
-- **No prebuilt installer/release download yet** — build from source for now (see [Installation](#installation)).
+- **No installer wizard and no code signing yet** — the release is a portable zip/exe, and SmartScreen will warn on first run until signing is arranged.
 - The tracing underlay is **aligned, not rotated**: it assumes your scan/photo is roughly square to the room; calibration fixes scale, not skew.
 - Furniture is drawn as simple coloured shapes/boxes — this is a planning tool, not a photorealistic renderer (offline rendered views are on the roadmap).
 
