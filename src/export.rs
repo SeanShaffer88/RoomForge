@@ -2,7 +2,7 @@
 //! sheet (plan + item list). Everything is generated from the project
 //! model alone so it can be tested off-Windows. No prices — by design.
 
-use crate::model::{OpeningKind, Project, ServiceKind, Wall};
+use crate::model::{OpeningKind, Project, Wall};
 
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -130,13 +130,11 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
     // Services
     for svc in &p.services {
         let (cx, cy) = svc.centre(&p.room);
-        let (label, fill) = match svc.kind {
-            ServiceKind::Socket => ("E", "#f6c343"),
-            ServiceKind::Pipe => ("W", "#3b82c4"),
-            ServiceKind::Radiator => ("R", "#c43b3b"),
-        };
+        let (label, rgb) = svc.kind.symbol();
+        let fill = rgb_hex(rgb);
+        let fsize = if label.len() > 1 { 8 } else { 10 };
         s.push_str(&format!(
-            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"9\" fill=\"{fill}\" stroke=\"#222\"/>\n<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" text-anchor=\"middle\" fill=\"#111\">{label}</text>\n",
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"9\" fill=\"{fill}\" stroke=\"#222\"/>\n<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"{fsize}\" text-anchor=\"middle\" fill=\"#111\">{label}</text>\n",
             sx(cx),
             sy(cy),
             sx(cx),
@@ -178,6 +176,24 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
     }
     s.push_str("</svg>\n");
     s
+}
+
+/// The plan SVG at a true print scale (1:50, 1:100, …): the root
+/// element carries physical millimetre dimensions, so printing the
+/// file at 100% reproduces the scale exactly.
+pub fn plan_svg_scaled(p: &Project, denominator: f64) -> String {
+    let px_per_m = 100.0;
+    let svg = plan_svg(p, px_per_m);
+    // 100 units = 1 m = 1000 mm at full size; at 1:denominator one
+    // unit is 10/denominator mm on paper.
+    let k = 10.0 / denominator;
+    let wp = p.room.width_m * px_per_m + 120.0;
+    let hp = p.room.depth_m * px_per_m + 120.0;
+    svg.replacen(
+        &format!("width=\"{wp:.0}\" height=\"{hp:.0}\""),
+        &format!("width=\"{:.1}mm\" height=\"{:.1}mm\"", wp * k, hp * k),
+        1,
+    )
 }
 
 /// CSV of the grouped item list. Columns: Item, Category, Width m,
@@ -300,6 +316,13 @@ mod tests {
         assert!(svg.contains("<svg"));
         assert!(svg.contains("3-seat sofa"));
         assert!(svg.contains("Floor area"));
+    }
+
+    #[test]
+    fn scaled_svg_carries_physical_size() {
+        let svg = plan_svg_scaled(&sample(), 50.0);
+        // 5 m room at 100 px/m + 120 margin = 620 units → 124 mm at 1:50.
+        assert!(svg.contains("width=\"124.0mm\""), "head: {}", &svg[..200]);
     }
 
     #[test]
