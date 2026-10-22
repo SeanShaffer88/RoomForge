@@ -29,7 +29,7 @@ in the product plan · Later = v2+ backlog.
 | Room/wall area readouts | Room Arranger (→Excel), RoomSketcher | ✅ room area; per-wall + export Adopt → M2 |
 | Dimension lines on the plan | Sweet Home 3D, RoomSketcher | ✅ v0.2.0 |
 | Text annotations on plan | Room Arranger, Sweet Home 3D | ✅ v0.2.0 (notes pinned to the plan) |
-| Starter templates / sample rooms | all | ✅ starter room; template set Adopt → M3 |
+| Starter templates / sample rooms | all | ✅ starter room; template set ✅ v0.4.0 (Living room / Bedroom / Home office) |
 | Local save, undo/redo | all (autosave rarely documented; Live Home 3D documents it) | ✅ incl. autosave + recovery (already ahead) |
 | Plan image export + print to scale (1:50/1:100, tiled pages) | Room Arranger, Sweet Home 3D, RoomSketcher Pro | ✅ SVG/print sheet; true-scale 1:50/1:100 SVG ✅ v0.3.0; page tiling later |
 | Walkthrough / first-person view | all desktop tools | Adopt → M4 (was v2; pulled forward) |
@@ -40,7 +40,7 @@ in the product plan · Later = v2+ backlog.
 | Feature | Where seen | RoomForge |
 |---|---|---|
 | Import 3D models (OBJ/glTF) for custom furniture | Live Home 3D (OBJ/glTF/FBX…), Sweet Home 3D (OBJ/DAE/3DS), Planner 5D Pro | **Adopt → M5** (GLB first, per-file license note; already in plan) |
-| Custom object builder (build furniture from boxes/parts in-app) | Room Arranger standout | **Adopt → M3** — simple box-composed custom items, stored in the project |
+| Custom object builder (build furniture from boxes/parts in-app) | Room Arranger standout | ✅ v0.4.0 — custom-sized box items with name/group/colour, stored in the project (multi-part composition later) |
 | Custom textures from image files; PBR material sets | Chief Architect, Punch!, Live Home 3D | Adopt → M3 (with the CC0 pack; provenance manifest) |
 | Curved walls | Punch!, Chief Architect | Later (after wall segments prove out) |
 | Offline photoreal rendering (path-traced stills) | Punch! LuxCore 8K, Chief Architect ray tracing | Adopt → M3 as *offline still render*; our renderer grows shadows/soft light first |
@@ -48,7 +48,7 @@ in the product plan · Later = v2+ backlog.
 | PDF / DXF export of the plan | Floorplanner (paid), RoomSketcher Pro, Homestyler (DWG) | PDF print Adopt → M2 (via print sheet); DXF Later |
 | Dollhouse view, 360° panorama export, camera-path video | Live Home 3D, Planner 5D, Sweet Home 3D (video) | Dollhouse = our orbit view ✅-ish; 360/video Later |
 | Electrical/plumbing symbol sets on the plan | Cedreo, Chief Architect, Homestyler | ✅ v0.3.0 — seven service kinds, one shared symbol table |
-| Materials list (quantities, no money) | Chief Architect, Punch! | **Adopt → M3** — quantities/areas only. Cost versions are in Conflicts. |
+| Materials list (quantities, no money) | Chief Architect, Punch! | ✅ v0.4.0 — floor/ceiling/wall areas + skirting/perimeter, in list view and print sheet. Cost versions are in Conflicts. |
 | Sun-study / shadow animation | Chief Architect class | Later |
 | Human-height measurement checks, door-clearance rules | scattered | Door-swing clearance ✅ v0.2.0; human-height checks later |
 
