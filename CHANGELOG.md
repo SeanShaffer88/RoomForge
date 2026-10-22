@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
+The second adoption batch from the competitor feature survey.
+
+### Added
+
+- Blueprint tracing: load a scanned or photographed floor plan
+  (PNG/JPEG/BMP) and it appears under the 2D drawing, fitted to the
+  room. Calibrate its true scale by clicking two points whose real
+  distance you know; adjust opacity while you trace. The image is
+  embedded in the plan file, so shared plans keep their underlay.
+- True-scale print exports: "Plan 1:50" and "Plan 1:100" SVG buttons
+  produce files with physical dimensions — print at 100% and the
+  drawing is exactly to scale.
+- Four more wall service points: light switch, TV point, network
+  point and thermostat, each with its own plan symbol in the app and
+  in exports (letters/colours now come from one shared table).
+
+### Notes
+
+- Two new dependencies, both permissively licensed and used offline
+  only: `image` (decoding plan images) and `base64` (embedding them).
+
 ## [0.2.0] - 2026-10-22
 
 The first adoption batch from the competitor feature survey
