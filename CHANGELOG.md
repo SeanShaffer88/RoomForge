@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-22
+
+The first adoption batch from the competitor feature survey
+(`docs/FEATURE_ADOPTION.md`).
+
+### Added
+
+- Imperial units: a Metric/Imperial toggle drives every readout, and
+  the room and furniture size fields accept typed lengths in either
+  system (5 m, 500 cm, 10' 6", 126"). Exports remain metric in this
+  release.
+- Wall thickness on the room, drawn to scale on the 2D plan and in the
+  SVG export; room dimensions stay clear internal dimensions.
+- Dimension lines with end ticks on the 2D plan and the SVG export.
+- Text notes pinned to the plan (📝 Add note), numbered on the plan,
+  listed in the item-list view and on the print sheet / SVG export.
+- Door-swing warnings: furniture standing in an inward door's swing
+  area is now flagged, like overlaps and covered radiators.
+
+### Notes
+
+- Plans saved by 0.1.0 open unchanged (new fields default sensibly).
+
+## [0.1.0] - 2026-10-22
+
 ### Added
 
 - Room planner for Windows: draw a room to scale with walls, doors,
