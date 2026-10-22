@@ -20,15 +20,15 @@ in the product plan · Later = v2+ backlog.
 
 | Feature | Where seen | RoomForge |
 |---|---|---|
-| Typed wall dimensions, wall thickness + height | all desktop tools | ✅ dims/height; thickness Adopt → M2 |
-| Metric + imperial units | Punch!, RoomSketcher, all | Adopt → M2 (display/input layer) |
+| Typed wall dimensions, wall thickness + height | all desktop tools | ✅ dims/height; thickness ✅ v0.2.0 |
+| Metric + imperial units | Punch!, RoomSketcher, all | ✅ v0.2.0 (display + typed input; exports metric for now) |
 | Doors/windows auto-cut into walls, swing shown | Sweet Home 3D, all | ✅ (visual inset/swing; true cut with wall segments → M2) |
 | Drag-and-drop catalog organised by room | all | ✅ |
 | Simultaneous 2D + 3D of the same design | all | ✅ |
 | Trace a plan/blueprint image, calibrated by a known length | Room Arranger, Sweet Home 3D, RoomSketcher, DreamPlan | **Adopt → M2** (manual trace; not photo-design — see conflicts) |
 | Room/wall area readouts | Room Arranger (→Excel), RoomSketcher | ✅ room area; per-wall + export Adopt → M2 |
-| Dimension lines on the plan | Sweet Home 3D, RoomSketcher | Adopt → M2 |
-| Text annotations on plan | Room Arranger, Sweet Home 3D | Adopt → M2 |
+| Dimension lines on the plan | Sweet Home 3D, RoomSketcher | ✅ v0.2.0 |
+| Text annotations on plan | Room Arranger, Sweet Home 3D | ✅ v0.2.0 (notes pinned to the plan) |
 | Starter templates / sample rooms | all | ✅ starter room; template set Adopt → M3 |
 | Local save, undo/redo | all (autosave rarely documented; Live Home 3D documents it) | ✅ incl. autosave + recovery (already ahead) |
 | Plan image export + print to scale (1:50/1:100, tiled pages) | Room Arranger, Sweet Home 3D, RoomSketcher Pro | ✅ SVG/print sheet; scale options + tiling Adopt → M2 |
@@ -50,7 +50,7 @@ in the product plan · Later = v2+ backlog.
 | Electrical/plumbing symbol sets on the plan | Cedreo, Chief Architect, Homestyler | ✅ sockets/pipes already core; fuller symbol library Adopt → M2 |
 | Materials list (quantities, no money) | Chief Architect, Punch! | **Adopt → M3** — quantities/areas only. Cost versions are in Conflicts. |
 | Sun-study / shadow animation | Chief Architect class | Later |
-| Human-height measurement checks, door-clearance rules | scattered | Adopt → M2 with door-swing clearance |
+| Human-height measurement checks, door-clearance rules | scattered | Door-swing clearance ✅ v0.2.0; human-height checks later |
 
 ## Rare / advanced (backlog, not scheduled)
 
