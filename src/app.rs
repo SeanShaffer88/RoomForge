@@ -6,7 +6,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stro
 use roomforge::catalog::{catalog, categories, CatalogItem};
 use roomforge::geometry::{point_in_obb, snap};
 use roomforge::model::{
-    Annotation, Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
+    Annotation, Corner, Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
 };
 use roomforge::units::{fmt_area, fmt_len, parse_len};
 use roomforge::view3d::{box_corners, box_faces, project as project3d, shade, Camera};
@@ -70,6 +70,9 @@ pub struct App {
     selected_service: Option<u64>,
     selected_note: Option<u64>,
     placing: Option<PlaceTemplate>,
+    // Room-shape (notch) form state.
+    notch_h: f64,
+    notch_v: f64,
     // Custom-item builder form state.
     custom_name: String,
     custom_category: String,
@@ -307,6 +310,8 @@ impl App {
             selected_service: None,
             selected_note: None,
             placing: None,
+            notch_h: 1.5,
+            notch_v: 1.2,
             custom_name: String::new(),
             custom_category: "Other".to_string(),
             custom_w: 0.6,
@@ -972,6 +977,101 @@ impl App {
             wall_thickness_m,
             "Wall thickness, drawn on the plan (room sizes stay clear internal dimensions)"
         );
+        ui.separator();
+        ui.strong(format!("Room shape: {}", self.project.room.shape_label()));
+        ui.label("Cut a rectangular notch out of a corner to make an L or U shape. Doors, windows and furniture adjust to fit.");
+        ui.horizontal(|ui| {
+            ui.label("Notch along ↔ wall");
+            len_edit(
+                ui,
+                "notch-h",
+                &mut self.notch_h,
+                imp,
+                "How far the notch runs along the horizontal (north/south) wall",
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Notch along ↕ wall");
+            len_edit(
+                ui,
+                "notch-v",
+                &mut self.notch_v,
+                imp,
+                "How far the notch runs along the vertical (east/west) wall",
+            );
+        });
+        for corner in [
+            Corner::NorthWest,
+            Corner::NorthEast,
+            Corner::SouthWest,
+            Corner::SouthEast,
+        ] {
+            let cut = self.project.room.corner_is_cut(corner);
+            ui.horizontal(|ui| {
+                let btn = ui
+                    .add_enabled(
+                        !cut,
+                        egui::Button::new(format!("Cut {} corner", corner.label())),
+                    )
+                    .on_hover_text(if cut {
+                        "This corner is already cut — restore the rectangle to redo it"
+                    } else {
+                        "Cut the notch described above out of this corner"
+                    });
+                if btn.clicked() {
+                    let mut trial = self.project.room.clone();
+                    match trial.cut_notch(corner, self.notch_h, self.notch_v) {
+                        Ok(()) => {
+                            self.snapshot();
+                            self.project.room = trial;
+                            let room = self.project.room.clone();
+                            for o in &mut self.project.openings {
+                                o.clamp_to_wall(&room);
+                            }
+                            for s in &mut self.project.services {
+                                s.clamp_to_wall(&room);
+                            }
+                            for it in &mut self.project.items {
+                                it.clamp_inside(&room);
+                            }
+                            for a in &mut self.project.annotations {
+                                a.clamp_inside(&room);
+                            }
+                            self.status = format!(
+                                "{} corner cut — the room is now {}.",
+                                corner.label(),
+                                self.project.room.shape_label()
+                            );
+                            self.mark_dirty();
+                        }
+                        Err(e) => {
+                            self.status = e;
+                        }
+                    }
+                }
+                if cut {
+                    ui.label("(cut)");
+                }
+            });
+        }
+        if !self.project.room.outline.is_empty()
+            && ui
+                .button("Restore rectangle")
+                .on_hover_text("Remove all notches and go back to a plain rectangle")
+                .clicked()
+        {
+            self.snapshot();
+            self.project.room.clear_outline();
+            let room = self.project.room.clone();
+            for o in &mut self.project.openings {
+                o.clamp_to_wall(&room);
+            }
+            for s in &mut self.project.services {
+                s.clamp_to_wall(&room);
+            }
+            self.status = "Back to a plain rectangle.".into();
+            self.mark_dirty();
+        }
         ui.horizontal(|ui| {
             ui.label("Wall colour");
             if ui
@@ -1140,12 +1240,12 @@ impl App {
                 {
                     self.snapshot();
                     let id = self.project.alloc_id();
-                    let len = self.wall_choice.length(&self.project.room);
+                    let (rs, re) = self.wall_choice.longest_run(&self.project.room);
                     self.project.services.push(ServicePoint {
                         id,
                         kind,
                         wall: self.wall_choice,
-                        offset_m: len / 2.0,
+                        offset_m: (rs + re) / 2.0,
                     });
                     self.selected_service = Some(id);
                     self.mark_dirty();
@@ -1425,12 +1525,17 @@ impl App {
             );
             gy += 0.5;
         }
-        // Floor + walls.
-        painter.rect_filled(
-            Rect::from_two_pos(to_screen(0.0, room.depth_m), to_screen(room.width_m, 0.0)),
-            0.0,
-            rgb(room.floor_rgb),
-        );
+        // Floor + walls. The floor is filled cell-by-cell so concave
+        // (notched) outlines render correctly; walls are the outline
+        // edges stroked at the wall's real thickness.
+        let outline = room.outline_or_rect();
+        for (x1, y1, x2, y2) in roomforge::geometry::rect_cells(&outline) {
+            painter.rect_filled(
+                Rect::from_two_pos(to_screen(x1, y2), to_screen(x2, y1)),
+                0.0,
+                rgb(room.floor_rgb),
+            );
+        }
         // Tracing underlay: decode once per image, draw over the floor.
         let need_tex = match (&self.project.underlay, &self.underlay_tex) {
             (Some(u), Some((k, _))) => *k != (u.data_b64.len(), u.width_px, u.height_px),
@@ -1472,15 +1577,15 @@ impl App {
                 ),
             );
         }
-        painter.rect_stroke(
-            Rect::from_two_pos(to_screen(0.0, room.depth_m), to_screen(room.width_m, 0.0)),
-            0.0,
-            Stroke::new(
-                (room.wall_thickness_m as f32 * scale).max(2.5),
-                Color32::from_rgb(230, 230, 230),
-            ),
-            egui::StrokeKind::Middle,
+        let wall_stroke = Stroke::new(
+            (room.wall_thickness_m as f32 * scale).max(2.5),
+            Color32::from_rgb(230, 230, 230),
         );
+        for i in 0..outline.len() {
+            let a = outline[i];
+            let b = outline[(i + 1) % outline.len()];
+            painter.line_segment([to_screen(a.0, a.1), to_screen(b.0, b.1)], wall_stroke);
+        }
         // Dimension lines: width below the south wall, depth left of the west.
         let font = FontId::proportional(13.0);
         let dim_col = Color32::LIGHT_GRAY;
@@ -1895,59 +2000,38 @@ impl App {
 
         // Gather faces: (points, colour, avg depth). Painted far → near.
         let mut faces: Vec<(Vec<Pos2>, Color32, f64)> = Vec::new();
-        // Floor
-        {
-            let corners = [
-                (0.0, 0.0, 0.0),
-                (room.width_m, 0.0, 0.0),
-                (room.width_m, room.depth_m, 0.0),
-                (0.0, room.depth_m, 0.0),
-            ];
+        let outline = room.outline_or_rect();
+        // Floor: rectangle cells of the outline (handles notches).
+        for (x1, y1, x2, y2) in roomforge::geometry::rect_cells(&outline) {
+            let corners = [(x1, y1, 0.0), (x2, y1, 0.0), (x2, y2, 0.0), (x1, y2, 0.0)];
             let (pts, depth) = face_of(&corners, &pr);
             faces.push((pts, rgb(shade(room.floor_rgb, 0.9)), depth));
         }
-        // Walls (quads up to ceiling height), with window/door gaps drawn
-        // as coloured insets afterwards.
-        type WallQuad = ([(f64, f64, f64); 4], f64);
-        let wall_quads: [WallQuad; 4] = [
-            (
-                [
-                    (0.0, 0.0, 0.0),
-                    (room.width_m, 0.0, 0.0),
-                    (room.width_m, 0.0, room.height_m),
-                    (0.0, 0.0, room.height_m),
-                ],
-                0.75,
-            ),
-            (
-                [
-                    (0.0, room.depth_m, 0.0),
-                    (room.width_m, room.depth_m, 0.0),
-                    (room.width_m, room.depth_m, room.height_m),
-                    (0.0, room.depth_m, room.height_m),
-                ],
-                0.95,
-            ),
-            (
-                [
-                    (0.0, 0.0, 0.0),
-                    (0.0, room.depth_m, 0.0),
-                    (0.0, room.depth_m, room.height_m),
-                    (0.0, 0.0, room.height_m),
-                ],
-                0.85,
-            ),
-            (
-                [
-                    (room.width_m, 0.0, 0.0),
-                    (room.width_m, room.depth_m, 0.0),
-                    (room.width_m, room.depth_m, room.height_m),
-                    (room.width_m, 0.0, room.height_m),
-                ],
-                0.65,
-            ),
-        ];
-        for (quad, bright) in wall_quads {
+        // Walls: one quad per outline edge, shaded by the direction
+        // the wall faces (the outline is CCW, so the outward normal
+        // is to the right of the direction of travel).
+        for i in 0..outline.len() {
+            let a = outline[i];
+            let b = outline[(i + 1) % outline.len()];
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let (nx, ny) = (dy, -dx); // outward normal (CCW outline)
+            let bright = if ny.abs() > nx.abs() {
+                if ny > 0.0 {
+                    0.95
+                } else {
+                    0.75
+                } // faces north / south
+            } else if nx > 0.0 {
+                0.65 // faces east
+            } else {
+                0.85 // faces west
+            };
+            let quad = [
+                (a.0, a.1, 0.0),
+                (b.0, b.1, 0.0),
+                (b.0, b.1, room.height_m),
+                (a.0, a.1, room.height_m),
+            ];
             let (pts, depth) = face_of(&quad, &pr);
             faces.push((pts, rgb(shade(room.wall_rgb, bright)), depth));
         }
