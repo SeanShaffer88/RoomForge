@@ -5,6 +5,23 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-22
 
+### Format v2: rectilinear outlines via corner notches
+
+- **Decision:** Rooms gain an optional rectilinear outline (format
+  v2). The user makes L/U/C shapes by cutting rectangular corner
+  notches (sized along each wall) rather than by free wall drawing.
+  Openings and services stay attached to the four outer walls by
+  offset, clamped to the wall runs that survive the notches.
+  Furniture/notes clamp to the true polygon.
+- **Why:** It covers the overwhelmingly common real-room shapes with
+  a small, fully testable model (polygon area/perimeter/contains,
+  run-based clamping) instead of a general wall-segment editor,
+  which remains a possible later step. Migration is free: v1 files
+  have no outline and load as rectangles.
+- **Consequences:** Free-form/angled walls are still unsupported;
+  openings cannot sit on notch edges yet; the underlay still maps to
+  the bounding box.
+
 ### Competitor feature adoption
 
 - **Decision:** Following SEAN's "adopt as many features as possible"
