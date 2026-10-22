@@ -39,6 +39,11 @@ decision — RoomForge is for planning a layout, not for shopping.
 - Wall thickness, drawn on the plan to scale
 - Text notes pinned to the plan, included in exports
 - Door-swing clearance warnings, alongside the overlap warnings
+- Blueprint tracing: lay a scanned/photographed plan under the drawing,
+  calibrate it by a known distance, and trace over it
+- Seven wall service points (socket, pipe, radiator, light switch, TV,
+  network, thermostat) with plan symbols
+- True-scale print exports at 1:50 and 1:100 (SVG)
   and dimension labels
 - Furniture catalog covering beds, seating, tables, storage, kitchen,
   bathroom, lighting and decor — every item with real-world dimensions
