@@ -90,6 +90,99 @@ pub fn point_in_obb(px: f64, py: f64, rect: &[(f64, f64); 4]) -> bool {
     true
 }
 
+/// Area of a simple polygon (shoelace formula).
+pub fn polygon_area(pts: &[(f64, f64)]) -> f64 {
+    let mut sum = 0.0;
+    for i in 0..pts.len() {
+        let (x1, y1) = pts[i];
+        let (x2, y2) = pts[(i + 1) % pts.len()];
+        sum += x1 * y2 - x2 * y1;
+    }
+    (sum / 2.0).abs()
+}
+
+/// Perimeter of a polygon.
+pub fn polygon_perimeter(pts: &[(f64, f64)]) -> f64 {
+    let mut sum = 0.0;
+    for i in 0..pts.len() {
+        let (x1, y1) = pts[i];
+        let (x2, y2) = pts[(i + 1) % pts.len()];
+        sum += ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
+    }
+    sum
+}
+
+/// Is a point inside a simple polygon? Points on the boundary count
+/// as inside. Ray casting, even–odd rule.
+pub fn point_in_polygon(px: f64, py: f64, pts: &[(f64, f64)]) -> bool {
+    // Boundary check first (within a hair of any edge).
+    for i in 0..pts.len() {
+        let (x1, y1) = pts[i];
+        let (x2, y2) = pts[(i + 1) % pts.len()];
+        let (dx, dy) = (x2 - x1, y2 - y1);
+        let len2 = dx * dx + dy * dy;
+        if len2 > 0.0 {
+            let t = (((px - x1) * dx + (py - y1) * dy) / len2).clamp(0.0, 1.0);
+            let (cx, cy) = (x1 + t * dx, y1 + t * dy);
+            if (px - cx).powi(2) + (py - cy).powi(2) < 1e-12 {
+                return true;
+            }
+        }
+    }
+    let mut inside = false;
+    for i in 0..pts.len() {
+        let (x1, y1) = pts[i];
+        let (x2, y2) = pts[(i + 1) % pts.len()];
+        if (y1 > py) != (y2 > py) {
+            let xint = x1 + (py - y1) / (y2 - y1) * (x2 - x1);
+            if px < xint {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+/// Area-weighted centroid of a simple polygon.
+pub fn polygon_centroid(pts: &[(f64, f64)]) -> (f64, f64) {
+    let (mut cx, mut cy, mut a2) = (0.0, 0.0, 0.0);
+    for i in 0..pts.len() {
+        let (x1, y1) = pts[i];
+        let (x2, y2) = pts[(i + 1) % pts.len()];
+        let f = x1 * y2 - x2 * y1;
+        a2 += f;
+        cx += (x1 + x2) * f;
+        cy += (y1 + y2) * f;
+    }
+    if a2.abs() < 1e-12 {
+        return (0.0, 0.0);
+    }
+    (cx / (3.0 * a2), cy / (3.0 * a2))
+}
+
+/// Decompose a rectilinear polygon into rectangles: take every
+/// distinct vertex x and y as a grid; a cell belongs to the polygon
+/// when its centre is inside. Used to fill concave floors in the 2D
+/// and 3D views. Returns (x1, y1, x2, y2) cells.
+pub fn rect_cells(pts: &[(f64, f64)]) -> Vec<(f64, f64, f64, f64)> {
+    let mut xs: Vec<f64> = pts.iter().map(|p| p.0).collect();
+    let mut ys: Vec<f64> = pts.iter().map(|p| p.1).collect();
+    xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    xs.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    ys.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    let mut out = Vec::new();
+    for i in 0..xs.len().saturating_sub(1) {
+        for j in 0..ys.len().saturating_sub(1) {
+            let (cx, cy) = ((xs[i] + xs[i + 1]) / 2.0, (ys[j] + ys[j + 1]) / 2.0);
+            if point_in_polygon(cx, cy, pts) {
+                out.push((xs[i], ys[j], xs[i + 1], ys[j + 1]));
+            }
+        }
+    }
+    out
+}
+
 /// Snap a value to the nearest step (used for 5 cm placement snapping).
 pub fn snap(value: f64, step: f64) -> f64 {
     if step <= 0.0 {
@@ -162,6 +255,30 @@ mod tests {
         let outside = vec![(1.4, 0.1), (1.7, 0.1), (1.7, 0.4), (1.4, 0.4)];
         assert!(convex_overlap(&sector, &inside));
         assert!(!convex_overlap(&sector, &outside));
+    }
+
+    #[test]
+    fn polygon_measures_for_an_l_shape() {
+        // 5 x 4 rectangle with a 2 x 1.5 notch cut from the NE corner.
+        let l = vec![
+            (0.0, 0.0),
+            (5.0, 0.0),
+            (5.0, 2.5),
+            (3.0, 2.5),
+            (3.0, 4.0),
+            (0.0, 4.0),
+        ];
+        assert!((polygon_area(&l) - (20.0 - 3.0)).abs() < 1e-9);
+        assert!((polygon_perimeter(&l) - 18.0).abs() < 1e-9);
+        assert!(point_in_polygon(1.0, 1.0, &l));
+        assert!(point_in_polygon(4.0, 1.0, &l));
+        assert!(!point_in_polygon(4.0, 3.5, &l)); // inside the notch
+        assert!(point_in_polygon(5.0, 1.0, &l)); // boundary counts
+        let cells = rect_cells(&l);
+        let cell_area: f64 = cells.iter().map(|c| (c.2 - c.0) * (c.3 - c.1)).sum();
+        assert!((cell_area - 17.0).abs() < 1e-9, "cells: {cells:?}");
+        let (cx, cy) = polygon_centroid(&l);
+        assert!(point_in_polygon(cx, cy, &l));
     }
 
     #[test]
