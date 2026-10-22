@@ -41,14 +41,17 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width_px:.0}\" height=\"{height_px:.0}\" viewBox=\"0 0 {width_px:.0} {height_px:.0}\">\n"
     ));
     s.push_str("<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\n");
-    // Floor — the outline stroke is the wall, drawn at its real thickness.
+    // Floor — a polygon (rectangles and notched shapes alike); the
+    // stroke is the wall, drawn at its real thickness.
     let wall_px = (p.room.wall_thickness_m * px_per_m).max(2.0);
+    let outline = p.room.outline_or_rect();
+    let pts: Vec<String> = outline
+        .iter()
+        .map(|&(x, y)| format!("{:.1},{:.1}", sx(x), sy(y)))
+        .collect();
     s.push_str(&format!(
-        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"{}\" stroke=\"#222\" stroke-width=\"{wall_px:.1}\"/>\n",
-        sx(0.0),
-        sy(d),
-        w * px_per_m,
-        d * px_per_m,
+        "<polygon points=\"{}\" fill=\"{}\" stroke=\"#222\" stroke-width=\"{wall_px:.1}\"/>\n",
+        pts.join(" "),
         rgb_hex(p.room.floor_rgb)
     ));
     // Dimension lines: width below the south wall, depth left of the west wall.
