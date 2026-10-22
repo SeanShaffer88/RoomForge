@@ -1,0 +1,54 @@
+name: Release
+
+# Builds the Windows release executable on a real Windows runner and
+# attaches it to the GitHub Release for the tag. Trigger by pushing a
+# version tag (v*) or from the Actions tab (workflow_dispatch).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Test (same gate as CI)
+        run: cargo test --locked
+
+      - name: Build release executable
+        run: cargo build --locked --release
+
+      - name: Package zip + checksums
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/roomforge.exe dist/
+          Copy-Item README.md, LICENSE, CHANGELOG.md dist/
+          $zip = "RoomForge-$ver-windows-x64.zip"
+          Compress-Archive -Path dist/* -DestinationPath $zip
+          $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          $exeHash = (Get-FileHash target/release/roomforge.exe -Algorithm SHA256).Hash.ToLower()
+          "$zipHash  $zip" | Out-File -Encoding ascii SHA256SUMS.txt
+          "$exeHash  roomforge.exe" | Add-Content -Encoding ascii SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+
+      - name: Publish assets to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ver="${GITHUB_REF_NAME}"
+          gh release view "$ver" >/dev/null 2>&1 || \
+            gh release create "$ver" --title "RoomForge $ver" --generate-notes
+          gh release upload "$ver" \
+            "RoomForge-$ver-windows-x64.zip" \
+            target/release/roomforge.exe \
+            SHA256SUMS.txt --clobber
