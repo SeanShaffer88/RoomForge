@@ -1,6 +1,6 @@
 [package]
 name = "roomforge"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.80"
 authors = ["Sean Shaffer"]
@@ -21,6 +21,8 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.23"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
 egui = { version = "0.33", default-features = false, features = ["default_fonts"] }
 # Renderer: glow (OpenGL), deliberately NOT wgpu — see DECISIONS.md.
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "accesskit"] }
