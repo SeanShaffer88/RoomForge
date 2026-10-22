@@ -6,8 +6,9 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stro
 use roomforge::catalog::{catalog, categories, CatalogItem};
 use roomforge::geometry::{point_in_obb, snap};
 use roomforge::model::{
-    Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
+    Annotation, Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
 };
+use roomforge::units::{fmt_area, fmt_len, parse_len};
 use roomforge::view3d::{box_corners, box_faces, project as project3d, shade, Camera};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -26,7 +27,10 @@ pub struct App {
     selected_item: Option<u64>,
     selected_opening: Option<u64>,
     selected_service: Option<u64>,
+    selected_note: Option<u64>,
     placing: Option<CatalogItem>,
+    placing_note: bool,
+    imperial: bool,
     wall_choice: Wall,
     catalog_search: String,
     snap_enabled: bool,
@@ -46,6 +50,39 @@ const PANEL_BG: Color32 = Color32::from_rgb(0x10, 0x10, 0x10);
 
 fn rgb(c: [u8; 3]) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
+}
+
+/// A length field that displays and accepts the user's chosen units
+/// (metric: "2.5 m" / "250 cm"; imperial: 10' 6"). Storage stays in
+/// metres. Returns true when a new value was committed.
+fn len_edit(ui: &mut egui::Ui, key: &str, value: &mut f64, imperial: bool, tip: &str) -> bool {
+    let wid = ui.id().with(key);
+    let focused = ui.memory(|m| m.has_focus(wid));
+    let mut text = ui.data_mut(|d| d.get_temp::<String>(wid).unwrap_or_default());
+    if !focused {
+        text = fmt_len(*value, imperial);
+    }
+    let resp = ui
+        .add(
+            egui::TextEdit::singleline(&mut text)
+                .id(wid)
+                .desired_width(92.0),
+        )
+        .on_hover_text(tip);
+    let mut committed = false;
+    if resp.has_focus() {
+        ui.data_mut(|d| d.insert_temp(wid, text.clone()));
+    }
+    if resp.lost_focus() {
+        if let Some(v) = parse_len(&text, imperial) {
+            if (v - *value).abs() > 1e-9 {
+                *value = v;
+                committed = true;
+            }
+        }
+        ui.data_mut(|d| d.insert_temp(wid, fmt_len(*value, imperial)));
+    }
+    committed
 }
 
 /// A starter room so the first launch shows what the program does.
@@ -137,7 +174,10 @@ impl App {
             selected_item: None,
             selected_opening: None,
             selected_service: None,
+            selected_note: None,
             placing: None,
+            placing_note: false,
+            imperial: false,
             wall_choice: Wall::South,
             catalog_search: String::new(),
             snap_enabled: true,
@@ -310,7 +350,18 @@ impl App {
                 self.view = View::List;
             } else if i.key_pressed(egui::Key::Escape) {
                 self.placing = None;
+                self.placing_note = false;
                 self.selected_item = None;
+                self.selected_note = None;
+            } else if (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+                && self.selected_item.is_none()
+            {
+                if let Some(nid) = self.selected_note {
+                    self.snapshot();
+                    self.project.annotations.retain(|a| a.id != nid);
+                    self.selected_note = None;
+                    self.mark_dirty();
+                }
             }
         });
         if let Some(id) = self.selected_item {
@@ -407,6 +458,21 @@ impl App {
                 ui.separator();
                 ui.checkbox(&mut self.snap_enabled, "Snap 5 cm")
                     .on_hover_text("Snap furniture to a 5 cm grid while dragging");
+                ui.separator();
+                ui.label("Units");
+                ui.selectable_value(&mut self.imperial, false, "Metric")
+                    .on_hover_text("Show and type lengths in metres and centimetres");
+                ui.selectable_value(&mut self.imperial, true, "Imperial")
+                    .on_hover_text("Show and type lengths in feet and inches, e.g. 10' 6\"");
+                ui.separator();
+                if ui
+                    .selectable_label(self.placing_note, "📝 Add note")
+                    .on_hover_text("Click, then click in the room to pin a text note there")
+                    .clicked()
+                {
+                    self.placing_note = true;
+                    self.placing = None;
+                }
             });
             ui.horizontal(|ui| {
                 ui.label("Export:");
@@ -437,11 +503,11 @@ impl App {
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!(
-                    "{} · {:.2} m × {:.2} m · {:.1} m² · {} items",
+                    "{} · {} × {} · {} · {} items",
                     self.project.room.name,
-                    self.project.room.width_m,
-                    self.project.room.depth_m,
-                    self.project.room.area_m2(),
+                    fmt_len(self.project.room.width_m, self.imperial),
+                    fmt_len(self.project.room.depth_m, self.imperial),
+                    fmt_area(self.project.room.area_m2(), self.imperial),
                     self.project.items.len()
                 ));
                 ui.separator();
@@ -501,6 +567,8 @@ impl App {
                     self.wall_section(ui);
                     ui.separator();
                     self.selection_section(ui);
+                    ui.separator();
+                    self.note_section(ui);
                 });
             });
     }
@@ -517,19 +585,12 @@ impl App {
                 changed = true;
             }
         });
+        let imp = self.imperial;
         macro_rules! dim {
             ($label:expr, $field:ident, $tip:expr) => {
                 ui.horizontal(|ui| {
                     ui.label($label);
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.project.room.$field)
-                                .speed(0.05)
-                                .suffix(" m"),
-                        )
-                        .on_hover_text($tip)
-                        .changed()
-                    {
+                    if len_edit(ui, $label, &mut self.project.room.$field, imp, $tip) {
                         changed = true;
                     }
                 });
@@ -538,14 +599,23 @@ impl App {
         dim!(
             "Width (W–E)",
             width_m,
-            "Room width, west to east, in metres"
+            "Room width, west to east. Type a length, e.g. 5 m, 500 cm or 16' 5\""
         );
         dim!(
             "Depth (S–N)",
             depth_m,
-            "Room depth, south to north, in metres"
+            "Room depth, south to north. Type a length in the chosen units"
         );
-        dim!("Ceiling", height_m, "Ceiling height in metres");
+        dim!(
+            "Ceiling",
+            height_m,
+            "Ceiling height. Type a length in the chosen units"
+        );
+        dim!(
+            "Wall thickness",
+            wall_thickness_m,
+            "Wall thickness, drawn on the plan (room sizes stay clear internal dimensions)"
+        );
         ui.horizontal(|ui| {
             ui.label("Wall colour");
             if ui
@@ -575,6 +645,9 @@ impl App {
             }
             for it in &mut self.project.items {
                 it.clamp_inside(&room);
+            }
+            for a in &mut self.project.annotations {
+                a.clamp_inside(&room);
             }
             self.mark_dirty();
         }
@@ -752,14 +825,17 @@ impl App {
                 ui.label("Name");
                 ui.text_edit_singleline(&mut it.name);
             });
+            let imp = self.imperial;
             macro_rules! fdim {
                 ($label:expr, $field:ident) => {
                     ui.horizontal(|ui| {
                         ui.label($label);
-                        ui.add(
-                            egui::DragValue::new(&mut it.$field)
-                                .speed(0.02)
-                                .suffix(" m"),
+                        len_edit(
+                            ui,
+                            $label,
+                            &mut it.$field,
+                            imp,
+                            "Type a length in the chosen units",
                         );
                     });
                 };
@@ -824,6 +900,65 @@ impl App {
         }
     }
 
+    fn note_section(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Plan note");
+        let Some(id) = self.selected_note else {
+            ui.label("No note selected. Use 📝 Add note, then click in the room.");
+            return;
+        };
+        let mut delete = false;
+        let mut edited = false;
+        if let Some(a) = self.project.annotations.iter_mut().find(|a| a.id == id) {
+            ui.label("Text");
+            if ui.text_edit_multiline(&mut a.text).changed() {
+                edited = true;
+            }
+            let imp = self.imperial;
+            ui.horizontal(|ui| {
+                ui.label("X");
+                len_edit(ui, "note-x", &mut a.x_m, imp, "Distance from the west wall");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Y");
+                len_edit(
+                    ui,
+                    "note-y",
+                    &mut a.y_m,
+                    imp,
+                    "Distance from the south wall",
+                );
+            });
+            if ui
+                .button("Delete note")
+                .on_hover_text("Remove this note (Delete key)")
+                .clicked()
+            {
+                delete = true;
+            }
+        } else {
+            self.selected_note = None;
+        }
+        if edited {
+            self.mark_dirty();
+        }
+        if delete {
+            self.snapshot();
+            self.project.annotations.retain(|a| a.id != id);
+            self.selected_note = None;
+            self.mark_dirty();
+        }
+    }
+
+    /// The note (if any) within 0.35 m of a room point.
+    fn note_at(&self, rx: f64, ry: f64) -> Option<u64> {
+        self.project
+            .annotations
+            .iter()
+            .rev()
+            .find(|a| (a.x_m - rx).abs() < 0.35 && (a.y_m - ry).abs() < 0.35)
+            .map(|a| a.id)
+    }
+
     // ---------- 2D plan ----------
 
     fn plan_view(&mut self, ui: &mut egui::Ui) {
@@ -833,7 +968,7 @@ impl App {
         painter.rect_filled(rect, 0.0, Color32::from_rgb(0x08, 0x08, 0x08));
 
         let room = self.project.room.clone();
-        let margin = 46.0f32;
+        let margin = 58.0f32;
         let scale = ((rect.width() - margin * 2.0) / room.width_m as f32)
             .min((rect.height() - margin * 2.0) / room.depth_m as f32)
             .max(5.0);
@@ -878,30 +1013,56 @@ impl App {
         painter.rect_stroke(
             Rect::from_two_pos(to_screen(0.0, room.depth_m), to_screen(room.width_m, 0.0)),
             0.0,
-            Stroke::new(4.0_f32, Color32::from_rgb(230, 230, 230)),
+            Stroke::new(
+                (room.wall_thickness_m as f32 * scale).max(2.5),
+                Color32::from_rgb(230, 230, 230),
+            ),
             egui::StrokeKind::Middle,
         );
-        // Dimension labels.
+        // Dimension lines: width below the south wall, depth left of the west.
         let font = FontId::proportional(13.0);
-        painter.text(
-            Pos2::new(
-                origin.x + room.width_m as f32 * scale / 2.0,
-                origin.y + 18.0,
-            ),
-            Align2::CENTER_TOP,
-            format!("{:.2} m", room.width_m),
-            font.clone(),
-            Color32::LIGHT_GRAY,
+        let dim_col = Color32::LIGHT_GRAY;
+        let dim_y = origin.y + 16.0;
+        painter.line_segment(
+            [
+                Pos2::new(origin.x, dim_y),
+                Pos2::new(origin.x + room.width_m as f32 * scale, dim_y),
+            ],
+            Stroke::new(1.0_f32, dim_col),
         );
+        for tx in [origin.x, origin.x + room.width_m as f32 * scale] {
+            painter.line_segment(
+                [Pos2::new(tx, dim_y - 5.0), Pos2::new(tx, dim_y + 5.0)],
+                Stroke::new(1.0_f32, dim_col),
+            );
+        }
         painter.text(
-            Pos2::new(
-                origin.x - 10.0,
-                origin.y - room.depth_m as f32 * scale / 2.0,
-            ),
+            Pos2::new(origin.x + room.width_m as f32 * scale / 2.0, dim_y + 6.0),
+            Align2::CENTER_TOP,
+            fmt_len(room.width_m, self.imperial),
+            font.clone(),
+            dim_col,
+        );
+        let dim_x = origin.x - 16.0;
+        painter.line_segment(
+            [
+                Pos2::new(dim_x, origin.y),
+                Pos2::new(dim_x, origin.y - room.depth_m as f32 * scale),
+            ],
+            Stroke::new(1.0_f32, dim_col),
+        );
+        for ty in [origin.y, origin.y - room.depth_m as f32 * scale] {
+            painter.line_segment(
+                [Pos2::new(dim_x - 5.0, ty), Pos2::new(dim_x + 5.0, ty)],
+                Stroke::new(1.0_f32, dim_col),
+            );
+        }
+        painter.text(
+            Pos2::new(dim_x - 8.0, origin.y - room.depth_m as f32 * scale / 2.0),
             Align2::RIGHT_CENTER,
-            format!("{:.2} m", room.depth_m),
+            fmt_len(room.depth_m, self.imperial),
             font,
-            Color32::LIGHT_GRAY,
+            dim_col,
         );
 
         self.draw_openings_2d(&painter, &to_screen);
@@ -936,9 +1097,57 @@ impl App {
             }
         }
 
+        // Annotations: numbered red markers with their text.
+        for (i, a) in self.project.annotations.iter().enumerate() {
+            let c = to_screen(a.x_m, a.y_m);
+            let selected = self.selected_note == Some(a.id);
+            painter.circle_filled(c, 9.0, RED);
+            if selected {
+                painter.circle_stroke(c, 11.0, Stroke::new(2.0_f32, Color32::WHITE));
+            }
+            painter.text(
+                c,
+                Align2::CENTER_CENTER,
+                format!("{}", i + 1),
+                FontId::proportional(11.0),
+                Color32::WHITE,
+            );
+            let short: String = a.text.chars().take(28).collect();
+            painter.text(
+                Pos2::new(c.x + 13.0, c.y),
+                Align2::LEFT_CENTER,
+                short,
+                FontId::proportional(11.0),
+                Color32::LIGHT_GRAY,
+            );
+        }
+
         // Placement ghost / interactions.
         if let Some(pos) = response.interact_pointer_pos() {
             let (rx, ry) = to_room(pos);
+            if self.placing_note {
+                painter.circle_stroke(pos, 9.0, Stroke::new(2.0_f32, RED));
+                if response.clicked() {
+                    self.snapshot();
+                    let id = self.project.alloc_id();
+                    let mut note = Annotation {
+                        id,
+                        x_m: rx,
+                        y_m: ry,
+                        text: "Note".into(),
+                    };
+                    let room2 = self.project.room.clone();
+                    note.clamp_inside(&room2);
+                    self.project.annotations.push(note);
+                    self.selected_note = Some(id);
+                    self.selected_item = None;
+                    self.mark_dirty();
+                    if !ui.input(|i| i.modifiers.shift) {
+                        self.placing_note = false;
+                    }
+                }
+                return;
+            }
             if let Some(cat) = self.placing.clone() {
                 // Ghost preview.
                 let fake = PlacedItem {
@@ -1040,11 +1249,16 @@ impl App {
                     .rev()
                     .find(|it| point_in_obb(rx, ry, &it.corners()))
                     .map(|it| it.id);
-                if hit.is_none() {
+                if let Some(nid) = self.note_at(rx, ry) {
+                    self.selected_note = Some(nid);
                     self.selected_item = None;
+                } else if hit.is_none() {
+                    self.selected_item = None;
+                    self.selected_note = None;
                     self.select_fitting_at(rx, ry);
                 } else {
                     self.selected_item = hit;
+                    self.selected_note = None;
                 }
             }
         }
@@ -1299,11 +1513,11 @@ impl App {
     fn list_view(&mut self, ui: &mut egui::Ui) {
         ui.heading(format!("{} — item list", self.project.room.name));
         ui.label(format!(
-            "Room {:.2} m × {:.2} m, ceiling {:.2} m, floor area {:.1} m². No prices are tracked in RoomForge.",
-            self.project.room.width_m,
-            self.project.room.depth_m,
-            self.project.room.height_m,
-            self.project.room.area_m2()
+            "Room {} × {}, ceiling {}, floor area {}. No prices are tracked in RoomForge.",
+            fmt_len(self.project.room.width_m, self.imperial),
+            fmt_len(self.project.room.depth_m, self.imperial),
+            fmt_len(self.project.room.height_m, self.imperial),
+            fmt_area(self.project.room.area_m2(), self.imperial)
         ));
         ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1319,7 +1533,12 @@ impl App {
                     for (name, cat, w, d, h, n) in self.project.item_list() {
                         ui.label(name);
                         ui.label(cat);
-                        ui.label(format!("{w:.2} × {d:.2} × {h:.2} m"));
+                        ui.label(format!(
+                            "{} × {} × {}",
+                            fmt_len(w, self.imperial),
+                            fmt_len(d, self.imperial),
+                            fmt_len(h, self.imperial)
+                        ));
                         ui.label(n.to_string());
                         ui.end_row();
                     }
@@ -1342,6 +1561,13 @@ impl App {
                     s.wall.label(),
                     s.offset_m
                 ));
+            }
+            if !self.project.annotations.is_empty() {
+                ui.separator();
+                ui.strong("Notes on the plan");
+                for (i, a) in self.project.annotations.iter().enumerate() {
+                    ui.label(format!("{}. {}", i + 1, a.text));
+                }
             }
             let warnings = self.project.warnings();
             if !warnings.is_empty() {
