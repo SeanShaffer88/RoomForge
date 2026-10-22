@@ -25,13 +25,13 @@ in the product plan · Later = v2+ backlog.
 | Doors/windows auto-cut into walls, swing shown | Sweet Home 3D, all | ✅ (visual inset/swing; true cut with wall segments → M2) |
 | Drag-and-drop catalog organised by room | all | ✅ |
 | Simultaneous 2D + 3D of the same design | all | ✅ |
-| Trace a plan/blueprint image, calibrated by a known length | Room Arranger, Sweet Home 3D, RoomSketcher, DreamPlan | **Adopt → M2** (manual trace; not photo-design — see conflicts) |
+| Trace a plan/blueprint image, calibrated by a known length | Room Arranger, Sweet Home 3D, RoomSketcher, DreamPlan | ✅ v0.3.0 (embedded image, two-point calibration) |
 | Room/wall area readouts | Room Arranger (→Excel), RoomSketcher | ✅ room area; per-wall + export Adopt → M2 |
 | Dimension lines on the plan | Sweet Home 3D, RoomSketcher | ✅ v0.2.0 |
 | Text annotations on plan | Room Arranger, Sweet Home 3D | ✅ v0.2.0 (notes pinned to the plan) |
 | Starter templates / sample rooms | all | ✅ starter room; template set Adopt → M3 |
 | Local save, undo/redo | all (autosave rarely documented; Live Home 3D documents it) | ✅ incl. autosave + recovery (already ahead) |
-| Plan image export + print to scale (1:50/1:100, tiled pages) | Room Arranger, Sweet Home 3D, RoomSketcher Pro | ✅ SVG/print sheet; scale options + tiling Adopt → M2 |
+| Plan image export + print to scale (1:50/1:100, tiled pages) | Room Arranger, Sweet Home 3D, RoomSketcher Pro | ✅ SVG/print sheet; true-scale 1:50/1:100 SVG ✅ v0.3.0; page tiling later |
 | Walkthrough / first-person view | all desktop tools | Adopt → M4 (was v2; pulled forward) |
 | Stairs + multiple floors | all except minimal tools | Adopt → M4 (format v2 already designed for it) |
 
@@ -47,7 +47,7 @@ in the product plan · Later = v2+ backlog.
 | Lighting design: fixtures, switches, time-of-day sun | Chief Architect (lights↔switches), Virtual Architect (geo sun) | Adopt → M4 (fixtures + day/evening already planned; switch linking later) |
 | PDF / DXF export of the plan | Floorplanner (paid), RoomSketcher Pro, Homestyler (DWG) | PDF print Adopt → M2 (via print sheet); DXF Later |
 | Dollhouse view, 360° panorama export, camera-path video | Live Home 3D, Planner 5D, Sweet Home 3D (video) | Dollhouse = our orbit view ✅-ish; 360/video Later |
-| Electrical/plumbing symbol sets on the plan | Cedreo, Chief Architect, Homestyler | ✅ sockets/pipes already core; fuller symbol library Adopt → M2 |
+| Electrical/plumbing symbol sets on the plan | Cedreo, Chief Architect, Homestyler | ✅ v0.3.0 — seven service kinds, one shared symbol table |
 | Materials list (quantities, no money) | Chief Architect, Punch! | **Adopt → M3** — quantities/areas only. Cost versions are in Conflicts. |
 | Sun-study / shadow animation | Chief Architect class | Later |
 | Human-height measurement checks, door-clearance rules | scattered | Door-swing clearance ✅ v0.2.0; human-height checks later |
