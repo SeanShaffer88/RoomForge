@@ -41,14 +41,34 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width_px:.0}\" height=\"{height_px:.0}\" viewBox=\"0 0 {width_px:.0} {height_px:.0}\">\n"
     ));
     s.push_str("<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\n");
-    // Floor
+    // Floor — the outline stroke is the wall, drawn at its real thickness.
+    let wall_px = (p.room.wall_thickness_m * px_per_m).max(2.0);
     s.push_str(&format!(
-        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"{}\" stroke=\"#222\" stroke-width=\"3\"/>\n",
+        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"{}\" stroke=\"#222\" stroke-width=\"{wall_px:.1}\"/>\n",
         sx(0.0),
         sy(d),
         w * px_per_m,
         d * px_per_m,
         rgb_hex(p.room.floor_rgb)
+    ));
+    // Dimension lines: width below the south wall, depth left of the west wall.
+    let dim_s = sy(0.0) + 30.0;
+    s.push_str(&format!(
+        "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#222\" stroke-width=\"1\"/>\n<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#222\" stroke-width=\"1\"/>\n<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#222\" stroke-width=\"1\"/>\n<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" text-anchor=\"middle\" fill=\"#222\">{}</text>\n",
+        sx(0.0), dim_s - 5.0, sx(0.0), dim_s + 5.0,
+        sx(w), dim_s - 5.0, sx(w), dim_s + 5.0,
+        sx(0.0), dim_s, sx(w), dim_s,
+        sx(w / 2.0), dim_s - 6.0,
+        crate::units::fmt_len(w, false)
+    ));
+    let dim_w = sx(0.0) - 30.0;
+    s.push_str(&format!(
+        "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#222\" stroke-width=\"1\"/>\n<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#222\" stroke-width=\"1\"/>\n<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#222\" stroke-width=\"1\"/>\n<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" text-anchor=\"middle\" fill=\"#222\" transform=\"rotate(-90 {:.1} {:.1})\">{}</text>\n",
+        dim_w - 5.0, sy(0.0), dim_w + 5.0, sy(0.0),
+        dim_w - 5.0, sy(d), dim_w + 5.0, sy(d),
+        dim_w, sy(0.0), dim_w, sy(d),
+        dim_w - 6.0, sy(d / 2.0), dim_w - 6.0, sy(d / 2.0),
+        crate::units::fmt_len(d, false)
     ));
     // Dimension labels
     s.push_str(&format!(
@@ -142,6 +162,20 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
             esc(&it.name)
         ));
     }
+    // Annotations: a circled number marker with the note text beside it.
+    for (i, a) in p.annotations.iter().enumerate() {
+        s.push_str(&format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"8\" fill=\"#e5484d\" stroke=\"#fff\"/>\n<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" text-anchor=\"middle\" fill=\"#fff\">{}</text>\n<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"11\" fill=\"#222\">{}</text>\n",
+            sx(a.x_m),
+            sy(a.y_m),
+            sx(a.x_m),
+            sy(a.y_m) + 3.5,
+            i + 1,
+            sx(a.x_m) + 12.0,
+            sy(a.y_m) + 4.0,
+            esc(&a.text)
+        ));
+    }
     s.push_str("</svg>\n");
     s
 }
@@ -202,8 +236,17 @@ pub fn print_html(p: &Project) -> String {
     if fittings.is_empty() {
         fittings = "<li>None recorded.</li>".to_string();
     }
+    let mut notes = String::new();
+    for (i, a) in p.annotations.iter().enumerate() {
+        notes.push_str(&format!("<li>{}. {}</li>", i + 1, esc(&a.text)));
+    }
+    let notes_section = if notes.is_empty() {
+        String::new()
+    } else {
+        format!("<h2>Notes on the plan</h2><ol>{notes}</ol>")
+    };
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n<body><h1>{} — {:.2} m × {:.2} m (ceiling {:.2} m)</h1>\n{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>\n<p>Drawn to scale by RoomForge. E = socket, W = pipe/water, R = radiator.</p></body></html>\n",
+        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n<body><h1>{} — {:.2} m × {:.2} m (ceiling {:.2} m)</h1>\n{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>{}\n<p>Drawn to scale by RoomForge. E = socket, W = pipe/water, R = radiator.</p></body></html>\n",
         esc(&p.room.name),
         esc(&p.room.name),
         p.room.width_m,
@@ -211,7 +254,8 @@ pub fn print_html(p: &Project) -> String {
         p.room.height_m,
         svg,
         rows,
-        fittings
+        fittings,
+        notes_section
     )
 }
 
