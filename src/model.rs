@@ -143,6 +143,10 @@ impl ServicePoint {
     }
 }
 
+fn default_wall_thickness() -> f64 {
+    0.1
+}
+
 /// The room shell. v1 rooms are rectangular: four walls described by
 /// width (W–E) and depth (S–N) plus a ceiling height.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -151,6 +155,10 @@ pub struct Room {
     pub width_m: f64,
     pub depth_m: f64,
     pub height_m: f64,
+    /// Wall thickness in metres (drawn on the plan; structural in
+    /// spirit — the room dimensions stay internal clear dimensions).
+    #[serde(default = "default_wall_thickness")]
+    pub wall_thickness_m: f64,
     /// Wall colour as [r, g, b] 0–255.
     pub wall_rgb: [u8; 3],
     /// Floor colour as [r, g, b] 0–255.
@@ -165,6 +173,7 @@ impl Room {
         self.width_m = self.width_m.clamp(1.0, 30.0);
         self.depth_m = self.depth_m.clamp(1.0, 30.0);
         self.height_m = self.height_m.clamp(1.8, 6.0);
+        self.wall_thickness_m = self.wall_thickness_m.clamp(0.05, 0.6);
     }
 }
 
@@ -175,9 +184,26 @@ impl Default for Room {
             width_m: 5.0,
             depth_m: 4.0,
             height_m: 2.5,
+            wall_thickness_m: default_wall_thickness(),
             wall_rgb: [216, 210, 200],
             floor_rgb: [148, 112, 76],
         }
+    }
+}
+
+/// A free-text note pinned to a point on the plan.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Annotation {
+    pub id: u64,
+    pub x_m: f64,
+    pub y_m: f64,
+    pub text: String,
+}
+
+impl Annotation {
+    pub fn clamp_inside(&mut self, room: &Room) {
+        self.x_m = self.x_m.clamp(0.0, room.width_m);
+        self.y_m = self.y_m.clamp(0.0, room.depth_m);
     }
 }
 
@@ -232,6 +258,8 @@ pub struct Project {
     pub openings: Vec<Opening>,
     pub services: Vec<ServicePoint>,
     pub items: Vec<PlacedItem>,
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
     /// Next id to hand out. Persisted so ids never repeat after a reload.
     pub next_id: u64,
 }
@@ -244,6 +272,7 @@ impl Default for Project {
             openings: Vec::new(),
             services: Vec::new(),
             items: Vec::new(),
+            annotations: Vec::new(),
             next_id: 1,
         }
     }
@@ -281,12 +310,16 @@ impl Project {
         for s in &mut p.services {
             s.clamp_to_wall(&room);
         }
+        for a in &mut p.annotations {
+            a.clamp_inside(&room);
+        }
         let max_id = p
             .items
             .iter()
             .map(|i| i.id)
             .chain(p.openings.iter().map(|o| o.id))
             .chain(p.services.iter().map(|s| s.id))
+            .chain(p.annotations.iter().map(|a| a.id))
             .max()
             .unwrap_or(0);
         if p.next_id <= max_id {
@@ -354,8 +387,50 @@ impl Project {
                 }
             }
         }
+        for o in &self.openings {
+            if let Some(sector) = door_swing_sector(o, &self.room) {
+                for it in &self.items {
+                    let corners: Vec<(f64, f64)> = it.corners().to_vec();
+                    if crate::geometry::convex_overlap(&sector, &corners) {
+                        out.push(format!(
+                            "{} blocks the {} door's swing",
+                            it.name,
+                            o.wall.label().to_lowercase()
+                        ));
+                    }
+                }
+            }
+        }
         out
     }
+}
+
+/// The floor area a door sweeps as it opens, as a convex polygon
+/// (hinge point + arc samples). Only inward-swinging doors can hit
+/// furniture — items are clamped inside the room — so outward doors
+/// return None. The hinge is at the opening's start edge.
+pub fn door_swing_sector(o: &Opening, room: &Room) -> Option<Vec<(f64, f64)>> {
+    if o.kind != OpeningKind::Door || !o.swings_in {
+        return None;
+    }
+    let r = o.width_m;
+    let (hx, hy, a0, a1) = match o.wall {
+        // Hinge on the south wall: leaf closes along +x, opens to +y.
+        Wall::South => (o.offset_m, 0.0, 0.0, 90.0),
+        // North wall: closes along +x, opens to -y.
+        Wall::North => (o.offset_m, room.depth_m, -90.0, 0.0),
+        // West wall: closes along +y, opens to +x.
+        Wall::West => (0.0, o.offset_m, 0.0, 90.0),
+        // East wall: closes along +y, opens to -x.
+        Wall::East => (room.width_m, o.offset_m, 90.0, 180.0),
+    };
+    let mut poly = vec![(hx, hy)];
+    let steps = 6;
+    for i in 0..=steps {
+        let a = (a0 + (a1 - a0) * (i as f64) / (steps as f64)).to_radians();
+        poly.push((hx + r * a.cos(), hy + r * a.sin()));
+    }
+    Some(poly)
 }
 
 #[cfg(test)]
@@ -439,5 +514,72 @@ mod tests {
             });
         }
         assert_eq!(p.warnings().len(), 1);
+    }
+
+    fn door_and_item(item_x: f64, item_y: f64) -> Project {
+        let mut p = Project::default(); // 5 x 4 room
+        let did = p.alloc_id();
+        p.openings.push(Opening {
+            id: did,
+            kind: OpeningKind::Door,
+            wall: Wall::South,
+            offset_m: 1.0,
+            width_m: 0.9,
+            sill_m: 0.0,
+            height_m: 2.1,
+            swings_in: true,
+        });
+        let iid = p.alloc_id();
+        p.items.push(PlacedItem {
+            id: iid,
+            catalog_id: "chair".into(),
+            name: "Chair".into(),
+            category: "Seating".into(),
+            x_m: item_x,
+            y_m: item_y,
+            width_m: 0.45,
+            depth_m: 0.45,
+            height_m: 0.9,
+            rotation_deg: 0.0,
+            rgb: [0, 0, 0],
+        });
+        p
+    }
+
+    #[test]
+    fn door_swing_blocked_and_clear() {
+        // Chair right in the swing path of the south door (hinge x=1.0).
+        let p = door_and_item(1.5, 0.5);
+        assert!(
+            p.warnings().iter().any(|w| w.contains("swing")),
+            "warnings: {:?}",
+            p.warnings()
+        );
+        // Chair far from the door: no swing warning.
+        let p = door_and_item(4.0, 3.0);
+        assert!(!p.warnings().iter().any(|w| w.contains("swing")));
+    }
+
+    #[test]
+    fn annotations_and_thickness_survive_roundtrip_and_legacy_json() {
+        let mut p = Project::default();
+        let id = p.alloc_id();
+        p.annotations.push(Annotation {
+            id,
+            x_m: 1.0,
+            y_m: 2.0,
+            text: "TV wall".into(),
+        });
+        p.room.wall_thickness_m = 0.2;
+        let back = Project::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back.annotations.len(), 1);
+        assert_eq!(back.room.wall_thickness_m, 0.2);
+        // A v0.1 file (no annotations / wall_thickness keys) still loads.
+        let legacy = r#"{"format_version":1,"room":{"name":"R","width_m":5.0,
+            "depth_m":4.0,"height_m":2.5,"wall_rgb":[1,2,3],"floor_rgb":[4,5,6]},
+            "openings":[],"services":[],"items":[],"next_id":1}"#;
+        let old = Project::from_json(legacy).unwrap();
+        assert!(old.annotations.is_empty());
+        assert_eq!(old.room.wall_thickness_m, 0.1);
     }
 }
