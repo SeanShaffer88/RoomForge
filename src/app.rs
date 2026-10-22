@@ -31,6 +31,12 @@ pub struct App {
     placing: Option<CatalogItem>,
     placing_note: bool,
     imperial: bool,
+    /// Decoded underlay texture, keyed by (byte length, w, h) of the
+    /// embedded image so project changes re-decode automatically.
+    underlay_tex: Option<((usize, u32, u32), egui::TextureHandle)>,
+    calibrating: bool,
+    calib_marks: Vec<(f64, f64)>,
+    calib_dist_m: f64,
     wall_choice: Wall,
     catalog_search: String,
     snap_enabled: bool,
@@ -178,6 +184,10 @@ impl App {
             placing: None,
             placing_note: false,
             imperial: false,
+            underlay_tex: None,
+            calibrating: false,
+            calib_marks: Vec::new(),
+            calib_dist_m: 1.0,
             wall_choice: Wall::South,
             catalog_search: String::new(),
             snap_enabled: true,
@@ -196,6 +206,42 @@ impl App {
     /// Open a plan file passed on the command line.
     pub fn open_path(&mut self, path: PathBuf) {
         self.open_from(path);
+    }
+
+    /// Load a floor-plan image as the tracing underlay. The original
+    /// bytes are embedded in the project so the plan stays portable.
+    fn load_underlay(&mut self, path: PathBuf) {
+        use base64::Engine;
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                self.status = format!("Could not read the image: {e}");
+                return;
+            }
+        };
+        if bytes.len() > 12 * 1024 * 1024 {
+            self.status = "That image is over 12 MB — please use a smaller scan or photo.".into();
+            return;
+        }
+        let img = match image::load_from_memory(&bytes) {
+            Ok(i) => i,
+            Err(e) => {
+                self.status = format!("That file could not be decoded as an image: {e}");
+                return;
+            }
+        };
+        self.snapshot();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        self.project.underlay = Some(roomforge::model::Underlay::fit(
+            &self.project.room,
+            img.width(),
+            img.height(),
+            b64,
+        ));
+        self.underlay_tex = None;
+        self.status =
+            "Plan image loaded under the drawing. Use Calibrate in the Room panel to set its true scale.".into();
+        self.mark_dirty();
     }
 
     fn snapshot(&mut self) {
@@ -289,6 +335,18 @@ fn open_dialog() -> Option<PathBuf> {
         .pick_file()
 }
 
+#[cfg(windows)]
+fn open_image_dialog() -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("Plan image", &["png", "jpg", "jpeg", "bmp"])
+        .pick_file()
+}
+
+#[cfg(not(windows))]
+fn open_image_dialog() -> Option<PathBuf> {
+    None
+}
+
 #[cfg(not(windows))]
 fn open_dialog() -> Option<PathBuf> {
     None
@@ -351,6 +409,8 @@ impl App {
             } else if i.key_pressed(egui::Key::Escape) {
                 self.placing = None;
                 self.placing_note = false;
+                self.calibrating = false;
+                self.calib_marks.clear();
                 self.selected_item = None;
                 self.selected_note = None;
             } else if (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
@@ -494,6 +554,19 @@ impl App {
                         self.export_to(p, &html, "Print sheet");
                     }
                 }
+                ui.separator();
+                if ui.button("Plan 1:50").on_hover_text("Save the plan as an SVG sized for true 1:50 printing — print it at 100%").clicked() {
+                    if let Some(p) = save_dialog("SVG drawing", "svg", "plan-1-50") {
+                        let svg = roomforge::export::plan_svg_scaled(&self.project, 50.0);
+                        self.export_to(p, &svg, "Plan 1:50");
+                    }
+                }
+                if ui.button("Plan 1:100").on_hover_text("Save the plan as an SVG sized for true 1:100 printing — print it at 100%").clicked() {
+                    if let Some(p) = save_dialog("SVG drawing", "svg", "plan-1-100") {
+                        let svg = roomforge::export::plan_svg_scaled(&self.project, 100.0);
+                        self.export_to(p, &svg, "Plan 1:100");
+                    }
+                }
             });
         });
     }
@@ -634,6 +707,67 @@ impl App {
                 changed = true;
             }
         });
+        ui.separator();
+        ui.strong("Blueprint tracing");
+        if self.project.underlay.is_none() {
+            if ui
+                .button("Load plan image…")
+                .on_hover_text("Lay a scanned or photographed floor plan under the drawing and trace over it. The image is stored inside the plan file")
+                .clicked()
+            {
+                if let Some(p) = open_image_dialog() {
+                    self.load_underlay(p);
+                } else {
+                    self.status = "Loading an image uses the file dialog on Windows.".into();
+                }
+            }
+        } else {
+            if let Some(u) = &mut self.project.underlay {
+                ui.add(egui::Slider::new(&mut u.opacity, 0.15..=1.0).text("Image opacity"))
+                    .on_hover_text("How strongly the tracing image shows through");
+            }
+            if ui
+                .selectable_label(self.calibrating, "Calibrate scale")
+                .on_hover_text("Click two points on the image whose real distance you know (e.g. a doorway), type that distance, and the image rescales to match")
+                .clicked()
+            {
+                self.calibrating = true;
+                self.calib_marks.clear();
+                self.placing = None;
+                self.placing_note = false;
+            }
+            if self.calibrating {
+                ui.label(format!(
+                    "Click point {} of 2 on the plan image.",
+                    self.calib_marks.len() + 1
+                ));
+                ui.horizontal(|ui| {
+                    ui.label("Real distance");
+                    len_edit(
+                        ui,
+                        "calib-dist",
+                        &mut self.calib_dist_m,
+                        imp,
+                        "The true distance between the two points you click",
+                    );
+                });
+                if ui.button("Cancel calibration").clicked() {
+                    self.calibrating = false;
+                    self.calib_marks.clear();
+                }
+            }
+            if ui
+                .button("Remove image")
+                .on_hover_text("Take the tracing image out of this plan")
+                .clicked()
+            {
+                self.snapshot();
+                self.project.underlay = None;
+                self.underlay_tex = None;
+                self.calibrating = false;
+                self.mark_dirty();
+            }
+        }
         if changed {
             self.project.room.clamp_dims();
             let room = self.project.room.clone();
@@ -706,11 +840,15 @@ impl App {
                 self.mark_dirty();
             }
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for (kind, label) in [
                 (ServiceKind::Socket, "＋ Socket"),
                 (ServiceKind::Pipe, "＋ Pipe"),
                 (ServiceKind::Radiator, "＋ Radiator"),
+                (ServiceKind::Switch, "＋ Switch"),
+                (ServiceKind::TvPoint, "＋ TV point"),
+                (ServiceKind::Network, "＋ Network"),
+                (ServiceKind::Thermostat, "＋ Thermostat"),
             ] {
                 if ui
                     .button(label)
@@ -1010,6 +1148,47 @@ impl App {
             0.0,
             rgb(room.floor_rgb),
         );
+        // Tracing underlay: decode once per image, draw over the floor.
+        let need_tex = match (&self.project.underlay, &self.underlay_tex) {
+            (Some(u), Some((k, _))) => *k != (u.data_b64.len(), u.width_px, u.height_px),
+            (Some(_), None) => true,
+            _ => false,
+        };
+        if need_tex {
+            use base64::Engine;
+            let b64 = self.project.underlay.as_ref().map(|u| u.data_b64.clone());
+            let decoded = b64
+                .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok())
+                .and_then(|bytes| image::load_from_memory(&bytes).ok())
+                .map(|img| {
+                    let rgba = img.to_rgba8();
+                    let size = [rgba.width() as usize, rgba.height() as usize];
+                    egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw())
+                });
+            if let (Some(ci), Some(u)) = (decoded, &self.project.underlay) {
+                let key = (u.data_b64.len(), u.width_px, u.height_px);
+                let tex = ui
+                    .ctx()
+                    .load_texture("underlay", ci, egui::TextureOptions::LINEAR);
+                self.underlay_tex = Some((key, tex));
+            }
+        }
+        if let (Some(u), Some((_, tex))) = (&self.project.underlay, &self.underlay_tex) {
+            let tl = to_screen(u.origin_x_m, u.origin_y_m);
+            let br_room = u.room_from_px(u.width_px as f64, u.height_px as f64);
+            let br = to_screen(br_room.0, br_room.1);
+            painter.image(
+                tex.id(),
+                Rect::from_two_pos(tl, br),
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::from_rgba_unmultiplied(
+                    255,
+                    255,
+                    255,
+                    (u.opacity.clamp(0.0, 1.0) * 255.0) as u8,
+                ),
+            );
+        }
         painter.rect_stroke(
             Rect::from_two_pos(to_screen(0.0, room.depth_m), to_screen(room.width_m, 0.0)),
             0.0,
@@ -1125,6 +1304,42 @@ impl App {
         // Placement ghost / interactions.
         if let Some(pos) = response.interact_pointer_pos() {
             let (rx, ry) = to_room(pos);
+            if self.calibrating {
+                if let Some(u) = &self.project.underlay {
+                    for m in &self.calib_marks {
+                        let rp = u.room_from_px(m.0, m.1);
+                        painter.circle_filled(to_screen(rp.0, rp.1), 5.0, RED);
+                        painter.circle_stroke(
+                            to_screen(rp.0, rp.1),
+                            8.0,
+                            Stroke::new(1.5_f32, Color32::WHITE),
+                        );
+                    }
+                }
+                if response.clicked() {
+                    let px = self
+                        .project
+                        .underlay
+                        .as_ref()
+                        .map(|u| u.px_from_room(rx, ry));
+                    if let Some(px) = px {
+                        self.calib_marks.push(px);
+                        if self.calib_marks.len() == 2 {
+                            self.snapshot();
+                            let (a, b) = (self.calib_marks[0], self.calib_marks[1]);
+                            let d = self.calib_dist_m;
+                            if let Some(u2) = &mut self.project.underlay {
+                                u2.calibrate(a, b, d);
+                            }
+                            self.calib_marks.clear();
+                            self.calibrating = false;
+                            self.status = "Plan image scale calibrated.".into();
+                            self.mark_dirty();
+                        }
+                    }
+                }
+                return;
+            }
             if self.placing_note {
                 painter.circle_stroke(pos, 9.0, Stroke::new(2.0_f32, RED));
                 if response.clicked() {
@@ -1347,14 +1562,10 @@ impl App {
     fn draw_services_2d(&self, painter: &egui::Painter, to_screen: &dyn Fn(f64, f64) -> Pos2) {
         for s in &self.project.services {
             let (cx, cy) = s.centre(&self.project.room);
-            let (label, fill) = match s.kind {
-                ServiceKind::Socket => ("E", Color32::from_rgb(246, 195, 67)),
-                ServiceKind::Pipe => ("W", Color32::from_rgb(59, 130, 196)),
-                ServiceKind::Radiator => ("R", Color32::from_rgb(196, 59, 59)),
-            };
+            let (label, fill_rgb) = s.kind.symbol();
             let pos = to_screen(cx, cy);
             let selected = self.selected_service == Some(s.id);
-            painter.circle_filled(pos, 10.0, fill);
+            painter.circle_filled(pos, 10.0, rgb(fill_rgb));
             if selected {
                 painter.circle_stroke(pos, 13.0, Stroke::new(2.0_f32, RED));
             }
@@ -1362,7 +1573,7 @@ impl App {
                 pos,
                 Align2::CENTER_CENTER,
                 label,
-                FontId::proportional(11.0),
+                FontId::proportional(if label.len() > 1 { 8.0 } else { 11.0 }),
                 Color32::from_rgb(10, 10, 10),
             );
         }
