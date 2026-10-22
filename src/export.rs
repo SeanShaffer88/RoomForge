@@ -261,8 +261,19 @@ pub fn print_html(p: &Project) -> String {
     } else {
         format!("<h2>Notes on the plan</h2><ol>{notes}</ol>")
     };
+    let m = p.materials();
+    let materials_section = format!(
+        "<h2>Materials — quantities only</h2><table>\
+        <tr><td>Floor / ceiling area</td><td>{:.1} m²</td></tr>\
+        <tr><td>Wall area (gross)</td><td>{:.1} m²</td></tr>\
+        <tr><td>Less doors &amp; windows</td><td>{:.1} m²</td></tr>\
+        <tr><td>Wall area to finish (net)</td><td>{:.1} m²</td></tr>\
+        <tr><td>Skirting / baseboard length</td><td>{:.1} m</td></tr>\
+        <tr><td>Room perimeter</td><td>{:.1} m</td></tr></table>",
+        m.floor_area_m2, m.wall_gross_m2, m.openings_m2, m.wall_net_m2, m.skirting_m, m.perimeter_m
+    );
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n<body><h1>{} — {:.2} m × {:.2} m (ceiling {:.2} m)</h1>\n{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>{}\n<p>Drawn to scale by RoomForge. E = socket, W = pipe/water, R = radiator.</p></body></html>\n",
+        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n<body><h1>{} — {:.2} m × {:.2} m (ceiling {:.2} m)</h1>\n{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>{}{}\n<p>Drawn to scale by RoomForge. Service symbols: E = socket, W = pipe/water, R = radiator, S = light switch, TV = TV point, N = network point, TH = thermostat.</p></body></html>\n",
         esc(&p.room.name),
         esc(&p.room.name),
         p.room.width_m,
@@ -271,7 +282,8 @@ pub fn print_html(p: &Project) -> String {
         svg,
         rows,
         fittings,
-        notes_section
+        notes_section,
+        materials_section
     )
 }
 
@@ -339,5 +351,7 @@ mod tests {
         assert!(html.contains("<svg"));
         assert!(html.contains("Item list"));
         assert!(html.contains("Door — South wall"));
+        assert!(html.contains("Materials — quantities only"));
+        assert!(!html.to_lowercase().contains("price"));
     }
 }
