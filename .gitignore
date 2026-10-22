@@ -1,0 +1,9 @@
+/target
+*.roomforge.autosave
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
