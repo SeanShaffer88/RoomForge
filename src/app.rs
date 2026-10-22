@@ -20,6 +20,47 @@ enum View {
     List,
 }
 
+/// What is about to be placed: a built-in catalog piece or one of the
+/// user's own custom definitions, in one owned shape.
+#[derive(Clone)]
+struct PlaceTemplate {
+    catalog_id: String,
+    name: String,
+    category: String,
+    width_m: f64,
+    depth_m: f64,
+    height_m: f64,
+    rgb: [u8; 3],
+}
+
+impl From<&CatalogItem> for PlaceTemplate {
+    fn from(c: &CatalogItem) -> Self {
+        PlaceTemplate {
+            catalog_id: c.id.to_string(),
+            name: c.name.to_string(),
+            category: c.category.to_string(),
+            width_m: c.width_m,
+            depth_m: c.depth_m,
+            height_m: c.height_m,
+            rgb: c.rgb,
+        }
+    }
+}
+
+impl From<&roomforge::model::CustomItemDef> for PlaceTemplate {
+    fn from(d: &roomforge::model::CustomItemDef) -> Self {
+        PlaceTemplate {
+            catalog_id: d.catalog_id(),
+            name: d.name.clone(),
+            category: d.category.clone(),
+            width_m: d.width_m,
+            depth_m: d.depth_m,
+            height_m: d.height_m,
+            rgb: d.rgb,
+        }
+    }
+}
+
 pub struct App {
     project: Project,
     view: View,
@@ -28,7 +69,14 @@ pub struct App {
     selected_opening: Option<u64>,
     selected_service: Option<u64>,
     selected_note: Option<u64>,
-    placing: Option<CatalogItem>,
+    placing: Option<PlaceTemplate>,
+    // Custom-item builder form state.
+    custom_name: String,
+    custom_category: String,
+    custom_w: f64,
+    custom_d: f64,
+    custom_h: f64,
+    custom_rgb: [u8; 3],
     placing_note: bool,
     imperial: bool,
     /// Decoded underlay texture, keyed by (byte length, w, h) of the
@@ -159,6 +207,83 @@ fn starter_project() -> Project {
     p
 }
 
+/// Place a catalog piece into a template project at (x, y).
+fn tpl_place(p: &mut Project, catalog_id: &str, x: f64, y: f64, rot: f64) {
+    if let Some(c) = catalog().into_iter().find(|c| c.id == catalog_id) {
+        let id = p.alloc_id();
+        let mut it = PlacedItem {
+            id,
+            catalog_id: c.id.into(),
+            name: c.name.into(),
+            category: c.category.into(),
+            x_m: x,
+            y_m: y,
+            width_m: c.width_m,
+            depth_m: c.depth_m,
+            height_m: c.height_m,
+            rotation_deg: rot,
+            rgb: c.rgb,
+        };
+        it.clamp_inside(&p.room.clone());
+        p.items.push(it);
+    }
+}
+
+fn tpl_door_window(p: &mut Project) {
+    let did = p.alloc_id();
+    p.openings.push(Opening {
+        id: did,
+        kind: OpeningKind::Door,
+        wall: Wall::South,
+        offset_m: 0.4,
+        width_m: 0.9,
+        sill_m: 0.0,
+        height_m: 2.1,
+        swings_in: true,
+    });
+    let wid = p.alloc_id();
+    p.openings.push(Opening {
+        id: wid,
+        kind: OpeningKind::Window,
+        wall: Wall::North,
+        offset_m: 1.2,
+        width_m: 1.5,
+        sill_m: 0.9,
+        height_m: 1.2,
+        swings_in: false,
+    });
+}
+
+fn bedroom_project() -> Project {
+    let mut p = Project::default();
+    p.room.name = "Bedroom".into();
+    p.room.width_m = 4.2;
+    p.room.depth_m = 3.6;
+    tpl_door_window(&mut p);
+    tpl_place(&mut p, "bed-double", 1.05, 2.5, 0.0);
+    tpl_place(&mut p, "bedside-table", 2.15, 3.25, 0.0);
+    tpl_place(&mut p, "wardrobe-2", 3.5, 3.3, 0.0);
+    tpl_place(&mut p, "chest-4", 3.85, 1.6, 270.0);
+    tpl_place(&mut p, "rug-small", 1.6, 1.4, 0.0);
+    tpl_place(&mut p, "floor-lamp", 0.35, 3.3, 0.0);
+    p
+}
+
+fn office_project() -> Project {
+    let mut p = Project::default();
+    p.room.name = "Home office".into();
+    p.room.width_m = 3.6;
+    p.room.depth_m = 3.2;
+    tpl_door_window(&mut p);
+    tpl_place(&mut p, "desk", 1.8, 2.85, 0.0);
+    tpl_place(&mut p, "desk-chair", 1.8, 2.1, 180.0);
+    tpl_place(&mut p, "bookcase", 0.35, 1.6, 90.0);
+    tpl_place(&mut p, "shelf-unit", 3.3, 1.2, 270.0);
+    tpl_place(&mut p, "plant", 3.3, 2.9, 0.0);
+    tpl_place(&mut p, "rug-small", 1.8, 1.5, 0.0);
+    p
+}
+
 impl App {
     pub fn new() -> Self {
         // Recover an autosave if one exists (crash / closed without saving).
@@ -182,6 +307,12 @@ impl App {
             selected_service: None,
             selected_note: None,
             placing: None,
+            custom_name: String::new(),
+            custom_category: "Other".to_string(),
+            custom_w: 0.6,
+            custom_d: 0.45,
+            custom_h: 0.8,
+            custom_rgb: [120, 110, 100],
             placing_note: false,
             imperial: false,
             underlay_tex: None,
@@ -474,14 +605,46 @@ impl App {
             ui.horizontal(|ui| {
                 ui.heading("RoomForge");
                 ui.separator();
-                if ui.button("New").on_hover_text("Start a new, empty room").clicked() {
-                    self.snapshot();
-                    self.project = Project::default();
-                    self.selected_item = None;
-                    self.current_path = None;
-                    self.status = "New empty room.".into();
-                    self.mark_dirty();
-                }
+                ui.menu_button("New", |ui| {
+                    if ui.button("Empty room").on_hover_text("Start a new, empty room").clicked() {
+                        self.snapshot();
+                        self.project = Project::default();
+                        self.selected_item = None;
+                        self.current_path = None;
+                        self.status = "New empty room.".into();
+                        self.mark_dirty();
+                        ui.close();
+                    }
+                    if ui.button("Template: Living room").on_hover_text("A furnished living room to rearrange").clicked() {
+                        self.snapshot();
+                        self.project = starter_project();
+                        self.selected_item = None;
+                        self.current_path = None;
+                        self.status = "Living room template loaded.".into();
+                        self.mark_dirty();
+                        ui.close();
+                    }
+                    if ui.button("Template: Bedroom").on_hover_text("A furnished bedroom to rearrange").clicked() {
+                        self.snapshot();
+                        self.project = bedroom_project();
+                        self.selected_item = None;
+                        self.current_path = None;
+                        self.status = "Bedroom template loaded.".into();
+                        self.mark_dirty();
+                        ui.close();
+                    }
+                    if ui.button("Template: Home office").on_hover_text("A furnished home office to rearrange").clicked() {
+                        self.snapshot();
+                        self.project = office_project();
+                        self.selected_item = None;
+                        self.current_path = None;
+                        self.status = "Home office template loaded.".into();
+                        self.mark_dirty();
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text("Start a new room, empty or from a template");
                 if ui.button("Open…").on_hover_text("Open a saved .roomforge plan").clicked() {
                     if let Some(p) = open_dialog() {
                         self.open_from(p);
@@ -618,15 +781,135 @@ impl App {
                         egui::CollapsingHeader::new(cat).default_open(true).show(ui, |ui| {
                             for c in items {
                                 let label = format!("{}  ({:.2}×{:.2} m)", c.name, c.width_m, c.depth_m);
-                                let selected = self.placing.as_ref().map(|p| p.id) == Some(c.id);
+                                let selected = self.placing.as_ref().map(|p| p.catalog_id.as_str()) == Some(c.id);
                                 if ui.selectable_label(selected, label).on_hover_text("Click, then click in the room to place it. Hold Shift while placing to place several.").clicked() {
                                     self.status = format!("Placing: {}. Click in the room.", c.name);
-                                    self.placing = Some(c);
+                                    self.placing = Some(PlaceTemplate::from(&c));
                                 }
                             }
                         });
                     }
+                    self.custom_items_section(ui);
                 });
+            });
+    }
+
+    /// "Your items": the user's own furniture definitions, plus the
+    /// builder form to create new ones. Definitions live in the
+    /// project file, so they travel with the plan.
+    fn custom_items_section(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        egui::CollapsingHeader::new("Your items — build your own")
+            .default_open(false)
+            .show(ui, |ui| {
+                let mut place_def: Option<PlaceTemplate> = None;
+                let mut delete_def: Option<u64> = None;
+                for d in &self.project.custom_items {
+                    ui.horizontal(|ui| {
+                        let label = format!("{}  ({:.2}×{:.2} m)", d.name, d.width_m, d.depth_m);
+                        let selected = self.placing.as_ref().map(|p| p.catalog_id.clone())
+                            == Some(d.catalog_id());
+                        if ui
+                            .selectable_label(selected, label)
+                            .on_hover_text("Click, then click in the room to place it")
+                            .clicked()
+                        {
+                            place_def = Some(PlaceTemplate::from(d));
+                        }
+                        if ui
+                            .small_button("✕")
+                            .on_hover_text(
+                                "Remove this definition (pieces already placed stay in the room)",
+                            )
+                            .clicked()
+                        {
+                            delete_def = Some(d.id);
+                        }
+                    });
+                }
+                if let Some(t) = place_def {
+                    self.status = format!("Placing: {}. Click in the room.", t.name);
+                    self.placing = Some(t);
+                }
+                if let Some(id) = delete_def {
+                    self.snapshot();
+                    self.project.custom_items.retain(|d| d.id != id);
+                    self.mark_dirty();
+                }
+                ui.separator();
+                ui.label("New custom item");
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut self.custom_name);
+                });
+                egui::ComboBox::from_label("Group")
+                    .selected_text(self.custom_category.clone())
+                    .show_ui(ui, |ui| {
+                        for cat in categories() {
+                            ui.selectable_value(&mut self.custom_category, cat.to_string(), cat);
+                        }
+                    });
+                let imp = self.imperial;
+                ui.horizontal(|ui| {
+                    ui.label("Width");
+                    len_edit(
+                        ui,
+                        "custom-w",
+                        &mut self.custom_w,
+                        imp,
+                        "Width of your item",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Depth");
+                    len_edit(
+                        ui,
+                        "custom-d",
+                        &mut self.custom_d,
+                        imp,
+                        "Depth of your item",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Height");
+                    len_edit(
+                        ui,
+                        "custom-h",
+                        &mut self.custom_h,
+                        imp,
+                        "Height of your item",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Colour");
+                    ui.color_edit_button_srgb(&mut self.custom_rgb);
+                });
+                if ui
+                    .button("Create & place")
+                    .on_hover_text("Save this definition into the plan and start placing it")
+                    .clicked()
+                {
+                    self.snapshot();
+                    let id = self.project.alloc_id();
+                    let mut def = roomforge::model::CustomItemDef {
+                        id,
+                        name: if self.custom_name.trim().is_empty() {
+                            "Custom item".to_string()
+                        } else {
+                            self.custom_name.trim().to_string()
+                        },
+                        category: self.custom_category.clone(),
+                        width_m: self.custom_w,
+                        depth_m: self.custom_d,
+                        height_m: self.custom_h,
+                        rgb: self.custom_rgb,
+                    };
+                    def.clamp_dims();
+                    self.placing = Some(PlaceTemplate::from(&def));
+                    self.status = format!("Placing: {}. Click in the room.", def.name);
+                    self.project.custom_items.push(def);
+                    self.mark_dirty();
+                }
             });
     }
 
@@ -1367,9 +1650,9 @@ impl App {
                 // Ghost preview.
                 let fake = PlacedItem {
                     id: 0,
-                    catalog_id: cat.id.into(),
-                    name: cat.name.into(),
-                    category: cat.category.into(),
+                    catalog_id: cat.catalog_id.clone(),
+                    name: cat.name.clone(),
+                    category: cat.category.clone(),
                     x_m: rx,
                     y_m: ry,
                     width_m: cat.width_m,
@@ -1780,6 +2063,32 @@ impl App {
                     ui.label(format!("{}. {}", i + 1, a.text));
                 }
             }
+            ui.separator();
+            ui.strong("Materials — quantities only (no prices, by design)");
+            let m = self.project.materials();
+            egui::Grid::new("materials")
+                .striped(true)
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label("Floor / ceiling area");
+                    ui.label(fmt_area(m.floor_area_m2, self.imperial));
+                    ui.end_row();
+                    ui.label("Wall area (gross)");
+                    ui.label(fmt_area(m.wall_gross_m2, self.imperial));
+                    ui.end_row();
+                    ui.label("Less doors & windows");
+                    ui.label(fmt_area(m.openings_m2, self.imperial));
+                    ui.end_row();
+                    ui.label("Wall area to finish (net)");
+                    ui.label(fmt_area(m.wall_net_m2, self.imperial));
+                    ui.end_row();
+                    ui.label("Skirting / baseboard");
+                    ui.label(fmt_len(m.skirting_m, self.imperial));
+                    ui.end_row();
+                    ui.label("Room perimeter");
+                    ui.label(fmt_len(m.perimeter_m, self.imperial));
+                    ui.end_row();
+                });
             let warnings = self.project.warnings();
             if !warnings.is_empty() {
                 ui.separator();
