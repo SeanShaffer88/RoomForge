@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Current project-file format version. Readers accept this and older
 /// versions they know how to migrate (see `Project::from_json`).
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Which wall of the (rectangular) room something is attached to.
 /// Coordinates: origin at the room's south-west corner, +x east, +y north.
@@ -34,6 +34,41 @@ impl Wall {
             Wall::North | Wall::South => room.width_m,
             Wall::East | Wall::West => room.depth_m,
         }
+    }
+    /// The straight runs of this wall that actually exist, as
+    /// (start, end) offsets from the wall's start corner. A rectangle
+    /// has one full-length run; a corner notch splits or shortens it.
+    pub fn runs(self, room: &Room) -> Vec<(f64, f64)> {
+        let pts = room.outline_or_rect();
+        let mut runs = Vec::new();
+        for i in 0..pts.len() {
+            let a = pts[i];
+            let b = pts[(i + 1) % pts.len()];
+            let hit = match self {
+                Wall::South if a.1 == 0.0 && b.1 == 0.0 => Some((a.0.min(b.0), a.0.max(b.0))),
+                Wall::North if a.1 == room.depth_m && b.1 == room.depth_m => {
+                    Some((a.0.min(b.0), a.0.max(b.0)))
+                }
+                Wall::West if a.0 == 0.0 && b.0 == 0.0 => Some((a.1.min(b.1), a.1.max(b.1))),
+                Wall::East if a.0 == room.width_m && b.0 == room.width_m => {
+                    Some((a.1.min(b.1), a.1.max(b.1)))
+                }
+                _ => None,
+            };
+            if let Some(r) = hit {
+                if r.1 - r.0 > 1e-9 {
+                    runs.push(r);
+                }
+            }
+        }
+        runs
+    }
+    /// The longest existing run of this wall.
+    pub fn longest_run(self, room: &Room) -> (f64, f64) {
+        self.runs(room)
+            .into_iter()
+            .max_by(|a, b| (a.1 - a.0).partial_cmp(&(b.1 - b.0)).unwrap())
+            .unwrap_or((0.0, self.length(room)))
     }
 }
 
@@ -71,9 +106,12 @@ pub struct Opening {
 
 impl Opening {
     pub fn clamp_to_wall(&mut self, room: &Room) {
-        let len = self.wall.length(room);
-        self.width_m = self.width_m.clamp(0.3, len.max(0.3));
-        self.offset_m = self.offset_m.clamp(0.0, (len - self.width_m).max(0.0));
+        // Keep the opening inside the longest real run of its wall
+        // (a notch may have shortened or split the wall).
+        let (start, end) = self.wall.longest_run(room);
+        let run_len = (end - start).max(0.1);
+        self.width_m = self.width_m.clamp((0.3_f64).min(run_len), run_len);
+        self.offset_m = self.offset_m.clamp(start, (end - self.width_m).max(start));
         self.height_m = self.height_m.clamp(0.4, room.height_m);
         self.sill_m = self
             .sill_m
@@ -162,9 +200,11 @@ pub struct ServicePoint {
 
 impl ServicePoint {
     pub fn clamp_to_wall(&mut self, room: &Room) {
-        let len = self.wall.length(room);
+        let (start, end) = self.wall.longest_run(room);
         let half = self.kind.width_m() / 2.0;
-        self.offset_m = self.offset_m.clamp(half, (len - half).max(half));
+        self.offset_m = self
+            .offset_m
+            .clamp(start + half, (end - half).max(start + half));
     }
     /// Centre position in room coordinates (metres).
     pub fn centre(&self, room: &Room) -> (f64, f64) {
@@ -182,8 +222,40 @@ fn default_wall_thickness() -> f64 {
     0.1
 }
 
-/// The room shell. v1 rooms are rectangular: four walls described by
-/// width (W–E) and depth (S–N) plus a ceiling height.
+/// A corner of the room's bounding rectangle, for notch cutting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Corner {
+    NorthEast,
+    NorthWest,
+    SouthEast,
+    SouthWest,
+}
+
+impl Corner {
+    pub fn label(self) -> &'static str {
+        match self {
+            Corner::NorthEast => "North-east",
+            Corner::NorthWest => "North-west",
+            Corner::SouthEast => "South-east",
+            Corner::SouthWest => "South-west",
+        }
+    }
+    /// The bounding-box point of this corner.
+    pub fn point(self, room: &Room) -> (f64, f64) {
+        match self {
+            Corner::NorthEast => (room.width_m, room.depth_m),
+            Corner::NorthWest => (0.0, room.depth_m),
+            Corner::SouthEast => (room.width_m, 0.0),
+            Corner::SouthWest => (0.0, 0.0),
+        }
+    }
+}
+
+/// The room shell: a bounding width (W–E) and depth (S–N), a ceiling
+/// height, and — since format v2 — an optional rectilinear outline.
+/// An empty outline means the plain rectangle; cutting a corner notch
+/// produces an L (or, with more notches, a U/C) shape. Openings and
+/// services still attach to the four outer walls by offset.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Room {
     pub name: String,
@@ -194,6 +266,9 @@ pub struct Room {
     /// spirit — the room dimensions stay internal clear dimensions).
     #[serde(default = "default_wall_thickness")]
     pub wall_thickness_m: f64,
+    /// Outline vertices (CCW, room coordinates). Empty = rectangle.
+    #[serde(default)]
+    pub outline: Vec<(f64, f64)>,
     /// Wall colour as [r, g, b] 0–255.
     pub wall_rgb: [u8; 3],
     /// Floor colour as [r, g, b] 0–255.
@@ -201,14 +276,148 @@ pub struct Room {
 }
 
 impl Room {
+    /// The effective outline: the stored one, or the rectangle.
+    pub fn outline_or_rect(&self) -> Vec<(f64, f64)> {
+        if self.outline.len() >= 4 {
+            self.outline.clone()
+        } else {
+            vec![
+                (0.0, 0.0),
+                (self.width_m, 0.0),
+                (self.width_m, self.depth_m),
+                (0.0, self.depth_m),
+            ]
+        }
+    }
     pub fn area_m2(&self) -> f64 {
-        self.width_m * self.depth_m
+        crate::geometry::polygon_area(&self.outline_or_rect())
+    }
+    pub fn perimeter_m(&self) -> f64 {
+        crate::geometry::polygon_perimeter(&self.outline_or_rect())
+    }
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        crate::geometry::point_in_polygon(x, y, &self.outline_or_rect())
+    }
+    /// Bring a point inside the room: unchanged when already inside,
+    /// otherwise the nearest boundary point nudged slightly inward.
+    pub fn clamp_point_inside(&self, x: f64, y: f64) -> (f64, f64) {
+        let x = x.clamp(0.0, self.width_m);
+        let y = y.clamp(0.0, self.depth_m);
+        if self.contains(x, y) {
+            return (x, y);
+        }
+        let pts = self.outline_or_rect();
+        let mut best = (x, y);
+        let mut best_d = f64::INFINITY;
+        for i in 0..pts.len() {
+            let (x1, y1) = pts[i];
+            let (x2, y2) = pts[(i + 1) % pts.len()];
+            let (dx, dy) = (x2 - x1, y2 - y1);
+            let len2 = dx * dx + dy * dy;
+            if len2 <= 0.0 {
+                continue;
+            }
+            let t = (((x - x1) * dx + (y - y1) * dy) / len2).clamp(0.0, 1.0);
+            let (cx, cy) = (x1 + t * dx, y1 + t * dy);
+            let d = (x - cx).powi(2) + (y - cy).powi(2);
+            if d < best_d {
+                best_d = d;
+                best = (cx, cy);
+            }
+        }
+        let (gx, gy) = crate::geometry::polygon_centroid(&pts);
+        let (vx, vy) = (gx - best.0, gy - best.1);
+        let vl = (vx * vx + vy * vy).sqrt();
+        if vl > 1e-9 {
+            best = (best.0 + vx / vl * 0.01, best.1 + vy / vl * 0.01);
+        }
+        best
+    }
+    pub fn corner_is_cut(&self, corner: Corner) -> bool {
+        let cp = corner.point(self);
+        !self
+            .outline_or_rect()
+            .iter()
+            .any(|p| (p.0 - cp.0).abs() < 1e-9 && (p.1 - cp.1).abs() < 1e-9)
+    }
+    /// Cut a rectangular notch out of a bounding-box corner.
+    /// `along_h` is the notch's extent along the horizontal wall,
+    /// `along_v` along the vertical wall. Fails when the corner is
+    /// already cut or the notch would swallow a wall (each cut must
+    /// be ≥ 0.3 m and leave ≥ 0.3 m of each adjacent wall run).
+    pub fn cut_notch(&mut self, corner: Corner, along_h: f64, along_v: f64) -> Result<(), String> {
+        if along_h < 0.3 || along_v < 0.3 {
+            return Err("A notch must be at least 0.3 m along each wall.".into());
+        }
+        let mut pts = self.outline_or_rect();
+        let cp = corner.point(self);
+        let idx = pts
+            .iter()
+            .position(|p| (p.0 - cp.0).abs() < 1e-9 && (p.1 - cp.1).abs() < 1e-9)
+            .ok_or_else(|| format!("The {} corner is already cut.", corner.label()))?;
+        let n = pts.len();
+        let prev = pts[(idx + n - 1) % n];
+        let next = pts[(idx + 1) % n];
+        // Distance to walk from the corner toward prev / next, based on
+        // whether that edge is horizontal or vertical.
+        let toward = |from: (f64, f64), to: (f64, f64), dist: f64| -> (f64, f64) {
+            let len = ((to.0 - from.0).powi(2) + (to.1 - from.1).powi(2)).sqrt();
+            (
+                from.0 + (to.0 - from.0) / len * dist,
+                from.1 + (to.1 - from.1) / len * dist,
+            )
+        };
+        let dist =
+            |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+        let d_prev = if (prev.1 - cp.1).abs() < 1e-9 {
+            along_h
+        } else {
+            along_v
+        };
+        let d_next = if (next.1 - cp.1).abs() < 1e-9 {
+            along_h
+        } else {
+            along_v
+        };
+        if dist(cp, prev) < d_prev + 0.3 || dist(cp, next) < d_next + 0.3 {
+            return Err(format!(
+                "That notch is too big for the {} corner — it would swallow the wall. Make it smaller, or enlarge the room first.",
+                corner.label()
+            ));
+        }
+        let a = toward(cp, prev, d_prev);
+        let b = toward(cp, next, d_next);
+        // The notch's inner corner: corner + both cut offsets.
+        let inner = (a.0 + b.0 - cp.0, a.1 + b.1 - cp.1);
+        pts.splice(idx..=idx, [a, inner, b]);
+        self.outline = pts;
+        Ok(())
+    }
+    /// Undo all notches: back to the plain rectangle.
+    pub fn clear_outline(&mut self) {
+        self.outline.clear();
+    }
+    pub fn shape_label(&self) -> String {
+        match self.outline_or_rect().len() {
+            4 => "Rectangle".to_string(),
+            6 => "L-shape (one corner notch)".to_string(),
+            8 => "Two corner notches".to_string(),
+            10 => "Three corner notches".to_string(),
+            12 => "Four corner notches".to_string(),
+            n => format!("Custom outline ({n} corners)"),
+        }
     }
     pub fn clamp_dims(&mut self) {
         self.width_m = self.width_m.clamp(1.0, 30.0);
         self.depth_m = self.depth_m.clamp(1.0, 30.0);
         self.height_m = self.height_m.clamp(1.8, 6.0);
         self.wall_thickness_m = self.wall_thickness_m.clamp(0.05, 0.6);
+        // An outline that no longer fits the bounding box is dropped.
+        if self.outline.iter().any(|p| {
+            p.0 < -1e-9 || p.1 < -1e-9 || p.0 > self.width_m + 1e-9 || p.1 > self.depth_m + 1e-9
+        }) {
+            self.outline.clear();
+        }
     }
 }
 
@@ -220,6 +429,7 @@ impl Default for Room {
             depth_m: 4.0,
             height_m: 2.5,
             wall_thickness_m: default_wall_thickness(),
+            outline: Vec::new(),
             wall_rgb: [216, 210, 200],
             floor_rgb: [148, 112, 76],
         }
@@ -237,8 +447,9 @@ pub struct Annotation {
 
 impl Annotation {
     pub fn clamp_inside(&mut self, room: &Room) {
-        self.x_m = self.x_m.clamp(0.0, room.width_m);
-        self.y_m = self.y_m.clamp(0.0, room.depth_m);
+        let (x, y) = room.clamp_point_inside(self.x_m, self.y_m);
+        self.x_m = x;
+        self.y_m = y;
     }
 }
 
@@ -269,11 +480,12 @@ impl PlacedItem {
         let local = [(-hw, -hd), (hw, -hd), (hw, hd), (-hw, hd)];
         local.map(|(lx, ly)| (self.x_m + lx * c - ly * s, self.y_m + lx * s + ly * c))
     }
-    /// Keep the item's centre inside the room (with a small margin so a
-    /// rotated item can still be grabbed at the edges).
+    /// Keep the item's centre inside the room outline (with a small
+    /// margin so a rotated item can still be grabbed at the edges).
     pub fn clamp_inside(&mut self, room: &Room) {
-        self.x_m = self.x_m.clamp(0.0, room.width_m);
-        self.y_m = self.y_m.clamp(0.0, room.depth_m);
+        let (x, y) = room.clamp_point_inside(self.x_m, self.y_m);
+        self.x_m = x;
+        self.y_m = y;
     }
     pub fn normalised_rotation(&self) -> f64 {
         let r = self.rotation_deg % 360.0;
@@ -513,7 +725,7 @@ impl Project {
     /// only — never prices.
     pub fn materials(&self) -> MaterialsReport {
         let r = &self.room;
-        let perimeter = 2.0 * (r.width_m + r.depth_m);
+        let perimeter = r.perimeter_m();
         let wall_gross = perimeter * r.height_m;
         let openings: f64 = self.openings.iter().map(|o| o.width_m * o.height_m).sum();
         let door_widths: f64 = self
@@ -734,6 +946,59 @@ mod tests {
         // Chair far from the door: no swing warning.
         let p = door_and_item(4.0, 3.0);
         assert!(!p.warnings().iter().any(|w| w.contains("swing")));
+    }
+
+    #[test]
+    fn notch_cutting_makes_an_l_and_clamps_things() {
+        let mut p = Project::default(); // 5 x 4
+        assert_eq!(p.room.shape_label(), "Rectangle");
+        p.room.cut_notch(Corner::NorthEast, 2.0, 1.5).unwrap();
+        assert_eq!(p.room.outline_or_rect().len(), 6);
+        assert!((p.room.area_m2() - 17.0).abs() < 1e-9);
+        assert!((p.room.perimeter_m() - 18.0).abs() < 1e-9);
+        assert_eq!(p.room.shape_label(), "L-shape (one corner notch)");
+        assert!(p.room.corner_is_cut(Corner::NorthEast));
+        // The same corner again is an error; so is a giant notch.
+        assert!(p.room.cut_notch(Corner::NorthEast, 1.0, 1.0).is_err());
+        assert!(p.room.cut_notch(Corner::SouthWest, 4.9, 1.0).is_err());
+        // A second corner works.
+        p.room.cut_notch(Corner::SouthWest, 1.0, 1.0).unwrap();
+        assert_eq!(p.room.outline_or_rect().len(), 8);
+        // A point in the NE notch gets pulled inside.
+        let (x, y) = p.room.clamp_point_inside(4.5, 3.5);
+        assert!(p.room.contains(x, y), "got {x},{y}");
+        // A north-wall opening beyond the remaining run is pulled in.
+        let oid = p.alloc_id();
+        let mut o = Opening {
+            id: oid,
+            kind: OpeningKind::Window,
+            wall: Wall::North,
+            offset_m: 4.0,
+            width_m: 1.5,
+            sill_m: 0.9,
+            height_m: 1.2,
+            swings_in: false,
+        };
+        o.clamp_to_wall(&p.room);
+        assert!(
+            o.offset_m + o.width_m <= 3.0 + 1e-9,
+            "offset {}",
+            o.offset_m
+        );
+        // Restore rectangle.
+        p.room.clear_outline();
+        assert!((p.room.area_m2() - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn v1_files_load_as_rectangles_in_v2() {
+        let legacy = r#"{"format_version":1,"room":{"name":"R","width_m":5.0,
+            "depth_m":4.0,"height_m":2.5,"wall_rgb":[1,2,3],"floor_rgb":[4,5,6]},
+            "openings":[],"services":[],"items":[],"next_id":1}"#;
+        let p = Project::from_json(legacy).unwrap();
+        assert_eq!(p.format_version, FORMAT_VERSION);
+        assert!(p.room.outline.is_empty());
+        assert!((p.room.area_m2() - 20.0).abs() < 1e-9);
     }
 
     #[test]
