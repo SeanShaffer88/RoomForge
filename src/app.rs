@@ -12,6 +12,7 @@ use roomforge::units::{fmt_area, fmt_len, parse_len};
 use roomforge::view3d::{
     box_corners, box_faces, project as project3d, shade_scene, wall_opening_quad, Camera, Scene,
 };
+use roomforge::walk::{walk_layers, WalkCmd, Walker};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -82,6 +83,8 @@ pub struct App {
     show_help: bool,
     text_scale: f32,
     scene: Scene,
+    walking: bool,
+    walker: Walker,
     // Room-shape (notch) form state.
     notch_h: f64,
     notch_v: f64,
@@ -325,6 +328,8 @@ impl App {
             show_help: false,
             text_scale: 1.0,
             scene: Scene::Day,
+            walking: false,
+            walker: Walker::default(),
             notch_h: 1.5,
             notch_v: 1.2,
             custom_name: String::new(),
@@ -579,10 +584,12 @@ impl App {
                 }
             } else if i.key_pressed(egui::Key::Num1) {
                 self.view = View::Plan;
+                self.walking = false;
             } else if i.key_pressed(egui::Key::Num2) {
                 self.view = View::ThreeD;
             } else if i.key_pressed(egui::Key::Num3) {
                 self.view = View::List;
+                self.walking = false;
             } else if i.key_pressed(egui::Key::Escape) {
                 self.placing = None;
                 self.placing_note = false;
@@ -601,7 +608,7 @@ impl App {
                 }
             }
         });
-        if let Some(id) = self.selected_item {
+        if let Some(id) = self.selected_item.filter(|_| !self.walking) {
             ctx.input(|i| {
                 let step = if i.modifiers.shift { 0.25 } else { 0.05 };
                 let (mut dx, mut dy) = (0.0, 0.0);
@@ -695,6 +702,7 @@ impl App {
                     ui.label("• Your work saves itself as you go: if the program closes unexpectedly, your last session is restored next time you start it.");
                     ui.label("• A plan is a single file ending in .roomforge — copy it, email it, or back it up like any document.");
                     ui.label("• Text too small? Use the A− / A+ buttons at the right of the Export row to change the size of everything.");
+                    ui.label("• In the 3D view, “Walk through the room” steps inside it: W A S D move, Q/E or dragging turns your head, Esc steps back out. You bump into walls and furniture, just like real life.");
                     ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
                 });
             });
@@ -2180,7 +2188,124 @@ impl App {
 
     // ---------- 3D view ----------
 
+    /// First-person walk mode (inside the 3D view): WASD/arrows
+    /// move with collision, drag or Q/E look around, Esc leaves.
+    fn walk_view(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui
+                .button("← Back to the orbit view")
+                .on_hover_text("Leave the walkthrough (Esc works too)")
+                .clicked()
+            {
+                self.walking = false;
+            }
+            ui.separator();
+            ui.label("Lighting");
+            for (s, tip) in [
+                (Scene::Day, "Bright daylight"),
+                (Scene::Evening, "Warm, softer evening light"),
+                (
+                    Scene::Night,
+                    "Dim night, with cool light through the windows",
+                ),
+            ] {
+                if ui
+                    .selectable_label(self.scene == s, s.label())
+                    .on_hover_text(tip)
+                    .clicked()
+                {
+                    self.scene = s;
+                }
+            }
+        });
+        ui.label("W A S D or the arrow keys move you · Q / E or dragging turns your head · Shift walks faster · Esc steps back out.");
+
+        let size = ui.available_size();
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::drag());
+        let ctx = ui.ctx().clone();
+        if response.dragged() {
+            let d = response.drag_delta();
+            self.walker.yaw_deg = (self.walker.yaw_deg + d.x as f64 * 0.25).rem_euclid(360.0);
+            self.walker.pitch_deg = (self.walker.pitch_deg - d.y as f64 * 0.25).clamp(-60.0, 60.0);
+        }
+        let dt = ctx.input(|i| (i.stable_dt as f64).min(0.05));
+        let (fwd_in, back_in, left_in, right_in, turn_l, turn_r, fast, esc) = ctx.input(|i| {
+            (
+                i.key_down(egui::Key::W) || i.key_down(egui::Key::ArrowUp),
+                i.key_down(egui::Key::S) || i.key_down(egui::Key::ArrowDown),
+                i.key_down(egui::Key::A) || i.key_down(egui::Key::ArrowLeft),
+                i.key_down(egui::Key::D) || i.key_down(egui::Key::ArrowRight),
+                i.key_down(egui::Key::Q),
+                i.key_down(egui::Key::E),
+                i.modifiers.shift,
+                i.key_pressed(egui::Key::Escape),
+            )
+        });
+        if esc {
+            self.walking = false;
+            return;
+        }
+        if turn_l {
+            self.walker.yaw_deg = (self.walker.yaw_deg - 100.0 * dt).rem_euclid(360.0);
+        }
+        if turn_r {
+            self.walker.yaw_deg = (self.walker.yaw_deg + 100.0 * dt).rem_euclid(360.0);
+        }
+        let fwd = (fwd_in as i32 - back_in as i32) as f64;
+        let strafe = (right_in as i32 - left_in as i32) as f64;
+        if fwd != 0.0 || strafe != 0.0 {
+            let speed = if fast { 3.0 } else { 1.6 };
+            let f = self.walker.forward();
+            let r = self.walker.right();
+            let dx = (f.0 * fwd + r.0 * strafe) * speed * dt;
+            let dy = (f.1 * fwd + r.1 * strafe) * speed * dt;
+            self.walker.pos = self.walker.moved(&self.project, dx, dy);
+        }
+        ctx.request_repaint();
+
+        let painter = ui.painter_at(rect);
+        let bg = self.scene.background();
+        painter.rect_filled(rect, 0.0, Color32::from_rgb(bg[0], bg[1], bg[2]));
+        let layers = walk_layers(
+            &self.project,
+            &self.walker,
+            self.scene,
+            rect.width() as f64,
+            rect.height() as f64,
+        );
+        for layer in layers {
+            match layer.cmd {
+                WalkCmd::Fill { pts, color } => {
+                    let pts: Vec<Pos2> = pts
+                        .iter()
+                        .map(|&(x, y)| rect.min + egui::vec2(x as f32, y as f32))
+                        .collect();
+                    if pts.len() >= 3 {
+                        painter.add(Shape::convex_polygon(
+                            pts,
+                            rgb(color),
+                            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 0, 0, 60)),
+                        ));
+                    }
+                }
+                WalkCmd::Line { a, b, color } => {
+                    painter.line_segment(
+                        [
+                            rect.min + egui::vec2(a.0 as f32, a.1 as f32),
+                            rect.min + egui::vec2(b.0 as f32, b.1 as f32),
+                        ],
+                        Stroke::new(1.0_f32, rgb(color)),
+                    );
+                }
+            }
+        }
+    }
+
     fn three_d_view(&mut self, ui: &mut egui::Ui) {
+        if self.walking {
+            self.walk_view(ui);
+            return;
+        }
         ui.horizontal(|ui| {
             ui.label("Orbit");
             ui.add(egui::Slider::new(&mut self.camera.yaw_deg, 0.0..=360.0).text("Turn"))
@@ -2212,6 +2337,15 @@ impl App {
                 .clicked()
             {
                 self.save_snapshot();
+            }
+            ui.separator();
+            if ui
+                .button("Walk through the room")
+                .on_hover_text("Stand inside the room and walk around it — W A S D to move, drag to look")
+                .clicked()
+            {
+                self.walker = Walker::start(&self.project);
+                self.walking = true;
             }
         });
         let rect = ui.available_rect_before_wrap();
