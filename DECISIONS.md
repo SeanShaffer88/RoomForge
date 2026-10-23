@@ -5,6 +5,22 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-23
 
+### Lighting scenes are global moods (v0.8.0)
+
+- **Decision:** `Scene` (Day/Evening/Night) lives in the library
+  (`view3d::Scene` + `shade_scene`) and drives both the live 3D
+  view and the snapshot renderer through one code path: an ambient
+  multiplier, a per-channel tint, a backdrop colour and a glass
+  colour/alpha. No per-lamp lights, shadows or radiosity.
+- **Why:** The roadmap promised "day/evening scenes"; a global mood
+  is the honest 80% — it answers "how does this room feel at night?"
+  without pretending to simulate lighting. Anything richer needs a
+  real lighting model, which is out of scope for a flat-shaded
+  planner.
+- **Consequences:** The 2D plan is a technical drawing and ignores
+  scenes entirely. If per-lamp lighting is ever added, it replaces
+  `shade_scene`'s tint step, not the scene plumbing.
+
 ### Usability pass: plain language first (v0.7.0)
 
 - **Decision:** Treat learnability as a feature: a built-in Help
