@@ -22,6 +22,13 @@ enum View {
     List,
 }
 
+/// One thing to paint in the 3D view, depth-sorted with everything
+/// else (fills for faces, lines for floor pattern segments).
+enum Draw {
+    Fill(Vec<Pos2>, Color32),
+    Line([Pos2; 2], Color32),
+}
+
 /// What is about to be placed: a built-in catalog piece or one of the
 /// user's own custom definitions, in one owned shape.
 #[derive(Clone)]
@@ -171,7 +178,7 @@ fn starter_project() -> Project {
     add(&mut p, "dining-table-4", 4.0, 2.6, 0.0);
     add(&mut p, "dining-chair", 3.6, 1.95, 0.0);
     add(&mut p, "dining-chair", 4.4, 1.95, 0.0);
-    add(&mut p, "floor-lamp", 0.35, 2.6, 0.0);
+    add(&mut p, "floor-lamp", 0.32, 3.35, 0.0);
     add(&mut p, "bookcase", 4.75, 1.2, 270.0);
     let oid = p.alloc_id();
     p.openings.push(Opening {
@@ -2063,6 +2070,8 @@ impl App {
             ui.add(egui::Slider::new(&mut self.camera.yaw_deg, 0.0..=360.0).text("Yaw°"));
             ui.add(egui::Slider::new(&mut self.camera.pitch_deg, 15.0..=80.0).text("Pitch°"));
             ui.add(egui::Slider::new(&mut self.camera.scale, 25.0..=160.0).text("Zoom"));
+        });
+        ui.horizontal(|ui| {
             ui.label("Drag the view to orbit.");
             if ui
                 .button("Save PNG snapshot")
@@ -2093,14 +2102,29 @@ impl App {
             (Pos2::new(sx as f32, sy as f32), depth)
         };
 
-        // Gather faces: (points, colour, avg depth). Painted far → near.
-        let mut faces: Vec<(Vec<Pos2>, Color32, f64)> = Vec::new();
+        // Gather everything to paint, depth-sorted far → near: face
+        // fills plus floor-pattern lines (biased a hair nearer than
+        // the floor itself, so lines sit on the floor and stay under
+        // furniture and walls — the same layering as the PNG render).
+        let mut draws: Vec<(f64, Draw)> = Vec::new();
         let outline = room.outline_or_rect();
+        let floor_cells = roomforge::geometry::rect_cells(&outline);
         // Floor: rectangle cells of the outline (handles notches).
-        for (x1, y1, x2, y2) in roomforge::geometry::rect_cells(&outline) {
-            let corners = [(x1, y1, 0.0), (x2, y1, 0.0), (x2, y2, 0.0), (x1, y2, 0.0)];
+        for (x1, y1, x2, y2) in &floor_cells {
+            let corners = [
+                (*x1, *y1, 0.0),
+                (*x2, *y1, 0.0),
+                (*x2, *y2, 0.0),
+                (*x1, *y2, 0.0),
+            ];
             let (pts, depth) = face_of(&corners, &pr);
-            faces.push((pts, rgb(shade(room.floor_rgb, 0.9)), depth));
+            draws.push((depth, Draw::Fill(pts, rgb(shade(room.floor_rgb, 0.9)))));
+        }
+        let pattern_col = rgb(shade(room.floor_rgb, 0.7));
+        for (a, b) in room.floor_material.pattern_segments(&floor_cells) {
+            let (pa, da) = pr((a.0, a.1, 0.0));
+            let (pb, db) = pr((b.0, b.1, 0.0));
+            draws.push(((da + db) / 2.0 - 0.02, Draw::Line([pa, pb], pattern_col)));
         }
         // Walls: one quad per outline edge, shaded by the direction
         // the wall faces (the outline is CCW, so the outward normal
@@ -2128,7 +2152,7 @@ impl App {
                 (a.0, a.1, room.height_m),
             ];
             let (pts, depth) = face_of(&quad, &pr);
-            faces.push((pts, rgb(shade(room.wall_rgb, bright)), depth));
+            draws.push((depth, Draw::Fill(pts, rgb(shade(room.wall_rgb, bright)))));
         }
         // Furniture boxes
         for it in &self.project.items {
@@ -2146,27 +2170,24 @@ impl App {
                 } else {
                     rgb(shade(it.rgb, bright))
                 };
-                faces.push((pts, col, depth));
+                draws.push((depth, Draw::Fill(pts, col)));
             }
         }
-        faces.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-        for (pts, col, _) in faces {
-            if pts.len() >= 3 {
-                painter.add(Shape::convex_polygon(
-                    pts,
-                    col,
-                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 0, 0, 60)),
-                ));
-            }
-        }
-        // Flooring pattern lines on the floor plane.
-        {
-            let cells = roomforge::geometry::rect_cells(&outline);
-            let col = rgb(shade(room.floor_rgb, 0.7));
-            for (a, b) in room.floor_material.pattern_segments(&cells) {
-                let (pa, _) = pr((a.0, a.1, 0.0));
-                let (pb, _) = pr((b.0, b.1, 0.0));
-                painter.line_segment([pa, pb], Stroke::new(1.0_f32, col));
+        draws.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (_, draw) in draws {
+            match draw {
+                Draw::Fill(pts, col) => {
+                    if pts.len() >= 3 {
+                        painter.add(Shape::convex_polygon(
+                            pts,
+                            col,
+                            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 0, 0, 60)),
+                        ));
+                    }
+                }
+                Draw::Line(pts, col) => {
+                    painter.line_segment(pts, Stroke::new(1.0_f32, col));
+                }
             }
         }
         // Windows glow on top of the walls they sit in.
