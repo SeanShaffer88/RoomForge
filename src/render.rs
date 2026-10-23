@@ -7,7 +7,9 @@ use image::{Rgb, RgbImage};
 
 use crate::geometry::rect_cells;
 use crate::model::{OpeningKind, Project};
-use crate::view3d::{box_corners, box_faces, project, shade, wall_opening_quad, Camera};
+use crate::view3d::{
+    box_corners, box_faces, project, shade_scene, wall_opening_quad, Camera, Scene,
+};
 
 /// Projects a room-space point to (screen point, depth).
 type Projector<'a> = dyn Fn((f64, f64, f64)) -> ((f64, f64), f64) + 'a;
@@ -30,9 +32,14 @@ struct Layered {
 }
 
 /// Render the project's 3D view (default orbit camera) to an RGB
-/// image of the given pixel size.
+/// image of the given pixel size, in daylight.
 pub fn render_snapshot(p: &Project, width: u32, height: u32) -> RgbImage {
-    let mut img = RgbImage::from_pixel(width, height, Rgb([8, 8, 8]));
+    render_snapshot_scene(p, width, height, Scene::Day)
+}
+
+/// Render the snapshot under a lighting scene (day / evening / night).
+pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene) -> RgbImage {
+    let mut img = RgbImage::from_pixel(width, height, Rgb(scene.background()));
     if width == 0 || height == 0 {
         return img;
     }
@@ -78,12 +85,12 @@ pub fn render_snapshot(p: &Project, width: u32, height: u32) -> RgbImage {
             &mut layers,
             &pr,
             &[(x1, y1, 0.0), (x2, y1, 0.0), (x2, y2, 0.0), (x1, y2, 0.0)],
-            shade(room.floor_rgb, 0.9),
+            shade_scene(room.floor_rgb, 0.9, scene),
         );
     }
     // Floor pattern lines, biased a hair nearer than the floor itself
     // so they paint over it but stay under furniture.
-    let line_color = shade(room.floor_rgb, 0.7);
+    let line_color = shade_scene(room.floor_rgb, 0.7, scene);
     for (a, b) in room.floor_material.pattern_segments(&cells) {
         let (sa, da) = pr((a.0, a.1, 0.0));
         let (sb, db) = pr((b.0, b.1, 0.0));
@@ -122,7 +129,7 @@ pub fn render_snapshot(p: &Project, width: u32, height: u32) -> RgbImage {
                 (b.0, b.1, room.height_m),
                 (a.0, a.1, room.height_m),
             ],
-            shade(room.wall_rgb, bright),
+            shade_scene(room.wall_rgb, bright, scene),
         );
     }
     // Furniture boxes.
@@ -135,7 +142,7 @@ pub fn render_snapshot(p: &Project, width: u32, height: u32) -> RgbImage {
                 corners[idx[2]],
                 corners[idx[3]],
             ];
-            push_quad(&mut layers, &pr, &quad, shade(it.rgb, bright));
+            push_quad(&mut layers, &pr, &quad, shade_scene(it.rgb, bright, scene));
         }
     }
     // Window glass, painted last like the live view.
@@ -160,7 +167,7 @@ pub fn render_snapshot(p: &Project, width: u32, height: u32) -> RgbImage {
         }
     }
     for pts in glass {
-        fill_polygon(&mut img, &pts, [120, 190, 240]);
+        fill_polygon(&mut img, &pts, scene.glass());
     }
     img
 }
@@ -242,6 +249,31 @@ mod tests {
         // Deterministic.
         let img2 = render_snapshot(&p, 320, 200);
         assert!(img.as_raw() == img2.as_raw());
+    }
+
+    #[test]
+    fn night_snapshot_is_darker_with_a_night_backdrop() {
+        let p = Project::default();
+        let day = render_snapshot(&p, 320, 200);
+        let night = render_snapshot_scene(&p, 320, 200, Scene::Night);
+        assert_eq!(night.get_pixel(2, 2).0, Scene::Night.background());
+        let mean = |img: &RgbImage| -> f64 {
+            let px: Vec<[u8; 3]> = img
+                .pixels()
+                .map(|q| q.0)
+                .filter(|c| *c != Scene::Day.background() && *c != Scene::Night.background())
+                .collect();
+            px.iter()
+                .map(|c| c[0] as f64 + c[1] as f64 + c[2] as f64)
+                .sum::<f64>()
+                / (px.len() as f64 * 3.0)
+        };
+        assert!(
+            mean(&night) < mean(&day) * 0.75,
+            "night mean {} vs day {}",
+            mean(&night),
+            mean(&day)
+        );
     }
 
     #[test]
