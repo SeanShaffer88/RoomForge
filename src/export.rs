@@ -28,7 +28,7 @@ fn opening_segment(p: &Project, o: &crate::model::Opening) -> ((f64, f64), (f64,
 }
 
 /// A top-down SVG floor plan, in metres mapped at `px_per_m`.
-pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
+pub fn plan_svg(p: &Project, px_per_m: f64, imperial: bool) -> String {
     let (w, d, h) = (p.room.width_m, p.room.depth_m, p.room.height_m);
     let margin = 60.0;
     let width_px = w * px_per_m + margin * 2.0;
@@ -76,7 +76,7 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
         sx(w), dim_s - 5.0, sx(w), dim_s + 5.0,
         sx(0.0), dim_s, sx(w), dim_s,
         sx(w / 2.0), dim_s - 6.0,
-        crate::units::fmt_len(w, false)
+        crate::units::fmt_len(w, imperial)
     ));
     let dim_w = sx(0.0) - 30.0;
     s.push_str(&format!(
@@ -85,23 +85,23 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
         dim_w - 5.0, sy(d), dim_w + 5.0, sy(d),
         dim_w, sy(0.0), dim_w, sy(d),
         dim_w - 6.0, sy(d / 2.0), dim_w - 6.0, sy(d / 2.0),
-        crate::units::fmt_len(d, false)
+        crate::units::fmt_len(d, imperial)
     ));
     // Dimension labels
     s.push_str(&format!(
-        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" text-anchor=\"middle\" fill=\"#222\">{} — {:.2} m wide × {:.2} m deep × {:.2} m ceiling</text>\n",
+        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" text-anchor=\"middle\" fill=\"#222\">{} — {} wide × {} deep × {} ceiling</text>\n",
         width_px / 2.0,
         24.0,
         esc(&p.room.name),
-        w,
-        d,
-        h
+        crate::units::fmt_len(w, imperial),
+        crate::units::fmt_len(d, imperial),
+        crate::units::fmt_len(h, imperial)
     ));
     s.push_str(&format!(
-        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" text-anchor=\"middle\" fill=\"#222\">Floor area {:.1} m²</text>\n",
+        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" text-anchor=\"middle\" fill=\"#222\">Floor area {}</text>\n",
         width_px / 2.0,
         height_px - 16.0,
-        p.room.area_m2()
+        crate::units::fmt_area(p.room.area_m2(), imperial)
     ));
     // Openings: doors as a gap + swing arc, windows as a blue double line.
     for o in &p.openings {
@@ -198,9 +198,9 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
 /// The plan SVG at a true print scale (1:50, 1:100, …): the root
 /// element carries physical millimetre dimensions, so printing the
 /// file at 100% reproduces the scale exactly.
-pub fn plan_svg_scaled(p: &Project, denominator: f64) -> String {
+pub fn plan_svg_scaled(p: &Project, denominator: f64, imperial: bool) -> String {
     let px_per_m = 100.0;
-    let svg = plan_svg(p, px_per_m);
+    let svg = plan_svg(p, px_per_m, imperial);
     // 100 units = 1 m = 1000 mm at full size; at 1:denominator one
     // unit is 10/denominator mm on paper.
     let k = 10.0 / denominator;
@@ -231,17 +231,17 @@ pub fn list_csv(p: &Project) -> String {
 /// A self-contained printable HTML page: the SVG plan, the item list,
 /// and the openings/services schedule. Open it in any browser and print
 /// (or print to PDF).
-pub fn print_html(p: &Project) -> String {
-    let svg = plan_svg(p, 90.0);
+pub fn print_html(p: &Project, imperial: bool) -> String {
+    let svg = plan_svg(p, 90.0, imperial);
     let mut rows = String::new();
     for (name, cat, w, d, h, n) in p.item_list() {
         rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{:.2} × {:.2} × {:.2} m</td><td>{}</td></tr>",
+            "<tr><td>{}</td><td>{}</td><td>{} × {} × {}</td><td>{}</td></tr>",
             esc(&name),
             esc(&cat),
-            w,
-            d,
-            h,
+            crate::units::fmt_len(w, imperial),
+            crate::units::fmt_len(d, imperial),
+            crate::units::fmt_len(h, imperial),
             n
         ));
     }
@@ -251,19 +251,19 @@ pub fn print_html(p: &Project) -> String {
     let mut fittings = String::new();
     for o in &p.openings {
         fittings.push_str(&format!(
-            "<li>{} — {} wall, {:.2} m from the corner, {:.2} m wide</li>",
+            "<li>{} — {} wall, {} from the corner, {} wide</li>",
             o.kind.label(),
             o.wall.label(),
-            o.offset_m,
-            o.width_m
+            crate::units::fmt_len(o.offset_m, imperial),
+            crate::units::fmt_len(o.width_m, imperial)
         ));
     }
     for svc in &p.services {
         fittings.push_str(&format!(
-            "<li>{} — {} wall, {:.2} m from the corner</li>",
+            "<li>{} — {} wall, {} from the corner</li>",
             svc.kind.label(),
             svc.wall.label(),
-            svc.offset_m
+            crate::units::fmt_len(svc.offset_m, imperial)
         ));
     }
     if fittings.is_empty() {
@@ -281,21 +281,26 @@ pub fn print_html(p: &Project) -> String {
     let m = p.materials();
     let materials_section = format!(
         "<h2>Materials — quantities only</h2><table>\
-        <tr><td>Floor / ceiling area</td><td>{:.1} m²</td></tr>\
-        <tr><td>Wall area (gross)</td><td>{:.1} m²</td></tr>\
-        <tr><td>Less doors &amp; windows</td><td>{:.1} m²</td></tr>\
-        <tr><td>Wall area to finish (net)</td><td>{:.1} m²</td></tr>\
-        <tr><td>Skirting / baseboard length</td><td>{:.1} m</td></tr>\
-        <tr><td>Room perimeter</td><td>{:.1} m</td></tr></table>",
-        m.floor_area_m2, m.wall_gross_m2, m.openings_m2, m.wall_net_m2, m.skirting_m, m.perimeter_m
+        <tr><td>Floor / ceiling area</td><td>{}</td></tr>\
+        <tr><td>Wall area (gross)</td><td>{}</td></tr>\
+        <tr><td>Less doors &amp; windows</td><td>{}</td></tr>\
+        <tr><td>Wall area to finish (net)</td><td>{}</td></tr>\
+        <tr><td>Skirting / baseboard length</td><td>{}</td></tr>\
+        <tr><td>Room perimeter</td><td>{}</td></tr></table>",
+        crate::units::fmt_area(m.floor_area_m2, imperial),
+        crate::units::fmt_area(m.wall_gross_m2, imperial),
+        crate::units::fmt_area(m.openings_m2, imperial),
+        crate::units::fmt_area(m.wall_net_m2, imperial),
+        crate::units::fmt_len(m.skirting_m, imperial),
+        crate::units::fmt_len(m.perimeter_m, imperial)
     );
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n<body><h1>{} — {:.2} m × {:.2} m (ceiling {:.2} m)</h1>\n{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>{}{}\n<p>Drawn to scale by RoomForge. Service symbols: E = socket, W = pipe/water, R = radiator, S = light switch, TV = TV point, N = network point, TH = thermostat.</p></body></html>\n",
+        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n<body><h1>{} — {} × {} (ceiling {})</h1>\n{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>{}{}\n<p>Drawn to scale by RoomForge. Service symbols: E = socket, W = pipe/water, R = radiator, S = light switch, TV = TV point, N = network point, TH = thermostat.</p></body></html>\n",
         esc(&p.room.name),
         esc(&p.room.name),
-        p.room.width_m,
-        p.room.depth_m,
-        p.room.height_m,
+        crate::units::fmt_len(p.room.width_m, imperial),
+        crate::units::fmt_len(p.room.depth_m, imperial),
+        crate::units::fmt_len(p.room.height_m, imperial),
         svg,
         rows,
         fittings,
@@ -341,7 +346,7 @@ mod tests {
 
     #[test]
     fn svg_contains_room_and_item() {
-        let svg = plan_svg(&sample(), 100.0);
+        let svg = plan_svg(&sample(), 100.0, false);
         assert!(svg.contains("<svg"));
         assert!(svg.contains("3-seat sofa"));
         assert!(svg.contains("Floor area"));
@@ -349,7 +354,7 @@ mod tests {
 
     #[test]
     fn scaled_svg_carries_physical_size() {
-        let svg = plan_svg_scaled(&sample(), 50.0);
+        let svg = plan_svg_scaled(&sample(), 50.0, false);
         // 5 m room at 100 px/m + 120 margin = 620 units → 124 mm at 1:50.
         assert!(svg.contains("width=\"124.0mm\""), "head: {}", &svg[..200]);
     }
@@ -366,14 +371,14 @@ mod tests {
     fn svg_draws_floor_pattern_for_tiled_floors() {
         let mut p = sample();
         p.room.floor_material = crate::model::FloorMaterial::CeramicTile;
-        let svg = plan_svg(&p, 40.0);
+        let svg = plan_svg(&p, 40.0, false);
         assert!(
             svg.contains("stroke-width=\"0.7\""),
             "no pattern lines in svg"
         );
         let mut p2 = sample();
         p2.room.floor_material = crate::model::FloorMaterial::BeigeCarpet;
-        let svg2 = plan_svg(&p2, 40.0);
+        let svg2 = plan_svg(&p2, 40.0, false);
         assert!(
             !svg2.contains("stroke-width=\"0.7\""),
             "carpet should have no pattern lines"
@@ -382,11 +387,22 @@ mod tests {
 
     #[test]
     fn html_embeds_plan_and_list() {
-        let html = print_html(&sample());
+        let html = print_html(&sample(), false);
         assert!(html.contains("<svg"));
         assert!(html.contains("Item list"));
         assert!(html.contains("Door — South wall"));
         assert!(html.contains("Materials — quantities only"));
         assert!(!html.to_lowercase().contains("price"));
+    }
+
+    #[test]
+    fn imperial_exports_use_feet_and_inches() {
+        let html = print_html(&sample(), true);
+        assert!(html.contains("ft²"), "imperial areas missing");
+        assert!(!html.contains("m²"), "metric area left behind");
+        assert!(!html.contains(" m from the corner"), "metric fitting left");
+        assert!(!html.contains(" m wide"), "metric size left");
+        let svg = plan_svg(&sample(), 100.0, true);
+        assert!(svg.contains("ft²"), "imperial svg area missing");
     }
 }
