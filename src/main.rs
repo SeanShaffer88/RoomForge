@@ -35,6 +35,19 @@ fn diag_log(line: &str) {
     }
 }
 
+/// The window/taskbar icon, decoded from the PNG shipped in assets/.
+fn app_icon() -> Option<egui::IconData> {
+    let img = image::load_from_memory(include_bytes!("../assets/icon.png"))
+        .ok()?
+        .to_rgba8();
+    let (width, height) = img.dimensions();
+    Some(egui::IconData {
+        rgba: img.into_raw(),
+        width,
+        height,
+    })
+}
+
 fn main() -> eframe::Result<()> {
     // No console in release builds: panics go to the local log so a
     // silent death is always explainable after the fact.
@@ -46,13 +59,17 @@ fn main() -> eframe::Result<()> {
     // Optional: `roomforge plan.roomforge` opens that plan.
     let arg_path = std::env::args().nth(1).map(std::path::PathBuf::from);
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("RoomForge")
+        .with_inner_size([1280.0, 820.0])
+        .with_min_inner_size([900.0, 600.0]);
+    if let Some(icon) = app_icon() {
+        viewport = viewport.with_icon(std::sync::Arc::new(icon));
+    }
     let options = eframe::NativeOptions {
         // Glow (OpenGL), pinned explicitly — see DECISIONS.md.
         renderer: eframe::Renderer::Glow,
-        viewport: egui::ViewportBuilder::default()
-            .with_title("RoomForge")
-            .with_inner_size([1280.0, 820.0])
-            .with_min_inner_size([900.0, 600.0]),
+        viewport,
         ..Default::default()
     };
 
