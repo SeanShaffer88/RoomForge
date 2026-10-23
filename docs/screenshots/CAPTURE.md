@@ -43,4 +43,4 @@ capture into `README.md` as soon as it is supplied.
 - [x] `02-3d-view.png` — 3D view, same room (refreshed 2026-10-23 from v1.0.0; pattern-over-walls fix and the un-clipped snapshot button both visible)
 - [x] `03-item-list.png` — item list panel (supplied 2026-10-23, v0.6.0; refreshed 2026-10-23 from v1.0.0)
 - [x] `04-snapshot.png` — a PNG snapshot rendered by RoomForge itself (supplied 2026-10-23, v0.6.0)
-- [ ] `05-room-setup.png` — room setup / openings panel, close-up (still owed; shot 1 shows the panel in context)
+- [x] `05-room-setup.png` — room setup / openings panel, close-up — **closed 2026-10-23: SEAN decided it's not needed** (shot 1 shows the panel in context). The screenshot list is complete.
