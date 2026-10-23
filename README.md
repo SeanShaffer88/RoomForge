@@ -97,7 +97,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.7.1-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.8.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -123,7 +123,7 @@ roomforge path\to\my-room.roomforge
 4. **(Optional) Trace a plan.** Room panel → **Load plan image…**, then **Calibrate scale** and click two points a known distance apart. Trace walls by sizing the room and placing fittings over the image.
 5. **Furnish.** In the left catalog, search or browse, click a piece, then click in the room to drop it. Drag pieces to move them; use the right panel to fine-tune size, position, rotation and colour. Watch the bottom bar — it calls out overlaps and blocked doors as you work.
 6. **Annotate.** **📝 Add note**, click in the room, and type. Click a note's marker to edit or delete it.
-7. **Check it in 3D.** Press **2** (or click **3D view**), drag to orbit. **Save PNG snapshot** renders the standard 3D view to a picture file you can send to anyone — no screenshot needed. Press **3** for the item list.
+7. **Check it in 3D.** Press **2** (or click **3D view**), drag to orbit. Try the **Lighting** buttons — Day, Evening and Night change the mood of the room (and of snapshots). **Save PNG snapshot** renders the 3D view to a picture file you can send to anyone — no screenshot needed. Press **3** for the item list.
 8. **Save and share.** **Ctrl+S** saves a `.roomforge` file — send that file to anyone; it opens in their copy, tracing image included.
 9. **Print and export.** Use the Export row: **Plan (SVG)** for a to-scale drawing, **Plan 1:50 / 1:100** for exact-scale printing, **Item list (CSV)** for a spreadsheet, **Print sheet (HTML)** for a tidy printable page.
 
@@ -193,7 +193,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-40 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
+43 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
 
 ```sh
 cargo test --locked
@@ -226,10 +226,11 @@ There are **no prices anywhere in RoomForge** — no item prices, no totals, and
 - **No installer wizard and no code signing yet** — the release is a portable zip/exe, and SmartScreen will warn on first run until signing is arranged.
 - The tracing underlay is **aligned, not rotated**: it assumes your scan/photo is roughly square to the room; calibration fixes scale, not skew.
 - Furniture is drawn as simple coloured shapes/boxes — this is a planning tool, not a photorealistic renderer (offline rendered views are on the roadmap).
+- **Lighting scenes are moods, not real lighting**: Day/Evening/Night change the whole scene's brightness, tint and window colour at once; there are no individual lamps, shadows or light switches yet.
 
 ## Roadmap
 
-Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). Already delivered from that list: L-shaped rooms (corner notches, format v2), the custom-object builder, the quantities-only materials list, procedural flooring materials, and offline PNG snapshots of the 3D view. Still ahead: lighting (day/evening scenes) → a first-person walkthrough → multi-room plans → import of GLB/OBJ models → user image textures. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
+Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). Already delivered from that list: L-shaped rooms (corner notches, format v2), the custom-object builder, the quantities-only materials list, procedural flooring materials, and offline PNG snapshots of the 3D view. Already delivered from that list also includes lighting scenes (Day / Evening / Night) for the 3D view and snapshots. Still ahead: a first-person walkthrough → multi-room plans → import of GLB/OBJ models → user image textures. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
 
 ## Contributing
 
