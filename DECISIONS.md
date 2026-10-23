@@ -3,6 +3,23 @@
 A running log of significant decisions for RoomForge: what was decided,
 why, and what it means. Newest entries first within each date.
 
+## 2026-10-23
+
+### Procedural materials and a software snapshot renderer
+
+- **Decision:** Floor finishes are procedural (base colour + pattern
+  segments generated from the model), not image textures; the 3D
+  snapshot export is a small software rasterizer in the library
+  (painter's algorithm), not a screenshot of the GUI.
+- **Why:** Plans stay self-contained (no texture files to lose or
+  license), patterns follow notched outlines exactly, one segment
+  generator feeds all four renderers, and the snapshot works
+  headless and is unit-testable. User-supplied image textures remain
+  a possible later addition.
+- **Consequences:** Finishes are flat-shaded, not photoreal; the
+  snapshot uses the standard camera rather than the live orbit
+  position.
+
 ## 2026-10-22
 
 ### Format v2: rectilinear outlines via corner notches
