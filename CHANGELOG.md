@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-23
+
+Fixes from the first on-machine run of v0.6.0 (thank you for the
+screenshots — they're in the README now).
+
+### Fixed
+
+- 3D view: floor-pattern lines were painted over everything —
+  furniture and even the near walls, which made the walls read as
+  pale flooring. Pattern lines are now depth-sorted with the scene,
+  sitting on the floor and passing under furniture, exactly as in
+  PNG snapshots.
+- 3D view: the "Save PNG snapshot" button was clipped by the side
+  panel on narrower windows; it now has its own row under the
+  orbit sliders.
+- Warnings: flat items (rugs) no longer raise "overlaps" warnings
+  for the furniture standing on them — that's what rugs are for.
+- The starter living room's floor lamp no longer grazes the sofa
+  (it raised an overlap warning in a brand-new plan).
+
 ## [0.6.0] - 2026-10-23
 
 ### Added
