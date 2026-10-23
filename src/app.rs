@@ -9,7 +9,9 @@ use roomforge::model::{
     Annotation, Corner, Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
 };
 use roomforge::units::{fmt_area, fmt_len, parse_len};
-use roomforge::view3d::{box_corners, box_faces, project as project3d, shade, Camera};
+use roomforge::view3d::{
+    box_corners, box_faces, project as project3d, shade, wall_opening_quad, Camera,
+};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -437,6 +439,23 @@ impl App {
                 self.dirty = false;
             }
             Err(e) => self.status = e,
+        }
+    }
+
+    fn save_snapshot(&mut self) {
+        let name = format!(
+            "{}-3d",
+            self.project
+                .room
+                .name
+                .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-")
+        );
+        if let Some(path) = save_dialog("PNG image", "png", &name) {
+            let img = roomforge::render::render_snapshot(&self.project, 1280, 800);
+            match img.save(&path) {
+                Ok(()) => self.status = format!("3D snapshot written to {}", path.display()),
+                Err(e) => self.status = format!("Could not write {}: {e}", path.display()),
+            }
         }
     }
 
@@ -1081,6 +1100,45 @@ impl App {
                 changed = true;
             }
         });
+        ui.label("Paint swatches — click to apply to the walls:");
+        ui.horizontal_wrapped(|ui| {
+            for (name, col) in [
+                ("Warm white", [216, 210, 200]),
+                ("Pure white", [240, 240, 238]),
+                ("Greige", [178, 168, 156]),
+                ("Sage", [156, 168, 148]),
+                ("Slate blue", [110, 128, 148]),
+                ("Terracotta", [188, 120, 92]),
+                ("Charcoal", [70, 70, 74]),
+                ("Family red", [107, 7, 0]),
+            ] {
+                if ui
+                    .add(egui::Button::new("  ").fill(rgb(col)))
+                    .on_hover_text(name)
+                    .clicked()
+                {
+                    self.project.room.wall_rgb = col;
+                    changed = true;
+                }
+            }
+        });
+        ui.separator();
+        ui.strong("Flooring");
+        let mut material = self.project.room.floor_material;
+        egui::ComboBox::from_label("Material")
+            .selected_text(material.label())
+            .show_ui(ui, |ui| {
+                for m in roomforge::model::FloorMaterial::all() {
+                    ui.selectable_value(&mut material, m, m.label());
+                }
+            });
+        if material != self.project.room.floor_material {
+            self.project.room.floor_material = material;
+            if let Some(base) = material.base_rgb() {
+                self.project.room.floor_rgb = base;
+            }
+            changed = true;
+        }
         ui.horizontal(|ui| {
             ui.label("Floor colour");
             if ui
@@ -1088,6 +1146,26 @@ impl App {
                 .changed()
             {
                 changed = true;
+            }
+        });
+        ui.label("Floor swatches (a custom colour makes the floor solid):");
+        ui.horizontal_wrapped(|ui| {
+            for (name, col) in [
+                ("Natural wood", [148, 112, 76]),
+                ("Dark wood", [90, 64, 44]),
+                ("Pale tile", [200, 200, 198]),
+                ("Mid grey", [120, 120, 120]),
+                ("Dark slate", [60, 60, 64]),
+            ] {
+                if ui
+                    .add(egui::Button::new("  ").fill(rgb(col)))
+                    .on_hover_text(name)
+                    .clicked()
+                {
+                    self.project.room.floor_rgb = col;
+                    self.project.room.floor_material = roomforge::model::FloorMaterial::Solid;
+                    changed = true;
+                }
             }
         });
         ui.separator();
@@ -1529,11 +1607,21 @@ impl App {
         // (notched) outlines render correctly; walls are the outline
         // edges stroked at the wall's real thickness.
         let outline = room.outline_or_rect();
-        for (x1, y1, x2, y2) in roomforge::geometry::rect_cells(&outline) {
+        let floor_cells = roomforge::geometry::rect_cells(&outline);
+        for (x1, y1, x2, y2) in &floor_cells {
             painter.rect_filled(
-                Rect::from_two_pos(to_screen(x1, y2), to_screen(x2, y1)),
+                Rect::from_two_pos(to_screen(*x1, *y2), to_screen(*x2, *y1)),
                 0.0,
                 rgb(room.floor_rgb),
+            );
+        }
+        // Flooring pattern (planks / tiles / joints), clipped to the
+        // floor by construction — segments are generated per cell.
+        let pattern_col = rgb(shade(room.floor_rgb, 0.7));
+        for (a, b) in room.floor_material.pattern_segments(&floor_cells) {
+            painter.line_segment(
+                [to_screen(a.0, a.1), to_screen(b.0, b.1)],
+                Stroke::new(1.0_f32, pattern_col),
             );
         }
         // Tracing underlay: decode once per image, draw over the floor.
@@ -1976,6 +2064,13 @@ impl App {
             ui.add(egui::Slider::new(&mut self.camera.pitch_deg, 15.0..=80.0).text("Pitch°"));
             ui.add(egui::Slider::new(&mut self.camera.scale, 25.0..=160.0).text("Zoom"));
             ui.label("Drag the view to orbit.");
+            if ui
+                .button("Save PNG snapshot")
+                .on_hover_text("Render the standard 3D view to a PNG picture you can share (rendered offline, no screenshot needed)")
+                .clicked()
+            {
+                self.save_snapshot();
+            }
         });
         let rect = ui.available_rect_before_wrap();
         let response = ui.interact(rect, ui.id().with("3d"), Sense::drag());
@@ -2062,6 +2157,16 @@ impl App {
                     col,
                     Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 0, 0, 60)),
                 ));
+            }
+        }
+        // Flooring pattern lines on the floor plane.
+        {
+            let cells = roomforge::geometry::rect_cells(&outline);
+            let col = rgb(shade(room.floor_rgb, 0.7));
+            for (a, b) in room.floor_material.pattern_segments(&cells) {
+                let (pa, _) = pr((a.0, a.1, 0.0));
+                let (pb, _) = pr((b.0, b.1, 0.0));
+                painter.line_segment([pa, pb], Stroke::new(1.0_f32, col));
             }
         }
         // Windows glow on top of the walls they sit in.
@@ -2198,37 +2303,4 @@ fn face_of(
         depth += d;
     }
     (pts, depth / 4.0)
-}
-
-/// The 3D quad of a wall opening, slightly proud of the wall surface.
-fn wall_opening_quad(p: &Project, o: &Opening) -> [(f64, f64, f64); 4] {
-    let (w, d) = (p.room.width_m, p.room.depth_m);
-    let (z0, z1) = (o.sill_m, o.sill_m + o.height_m);
-    let e = 0.01;
-    match o.wall {
-        Wall::South => [
-            (o.offset_m, -e, z0),
-            (o.offset_m + o.width_m, -e, z0),
-            (o.offset_m + o.width_m, -e, z1),
-            (o.offset_m, -e, z1),
-        ],
-        Wall::North => [
-            (o.offset_m, d + e, z0),
-            (o.offset_m + o.width_m, d + e, z0),
-            (o.offset_m + o.width_m, d + e, z1),
-            (o.offset_m, d + e, z1),
-        ],
-        Wall::West => [
-            (-e, o.offset_m, z0),
-            (-e, o.offset_m + o.width_m, z0),
-            (-e, o.offset_m + o.width_m, z1),
-            (-e, o.offset_m, z1),
-        ],
-        Wall::East => [
-            (w + e, o.offset_m, z0),
-            (w + e, o.offset_m + o.width_m, z0),
-            (w + e, o.offset_m + o.width_m, z1),
-            (w + e, o.offset_m, z1),
-        ],
-    }
 }
