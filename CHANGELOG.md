@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-23
+
+A usability release: the same RoomForge, easier to learn and to use,
+whether it's your first room plan or your fiftieth.
+
+### Added
+
+- **Built-in Help (F1 or the Help button)**: a plain-language guide
+  covering the four steps to a first room, what the few jargon words
+  mean ("services", "notch", "tracing image"), every keyboard
+  shortcut, and the good-to-know facts (fully offline, autosave and
+  recovery, why there are no prices).
+- **"Space around it" readout**: selecting a piece of furniture now
+  shows the clear gap between it and each wall — the quick way to
+  check a walkway or door clearance without measuring by eye.
+- **Text size controls** (A− / A+ at the right of the Export row):
+  scale everything in the window from 85% to 150%.
+
+### Changed
+
+- Plainer labels throughout: the 3D sliders are now "Turn" and
+  "Tilt" (not Yaw/Pitch); an item's position fields read "Centre —
+  from left wall" / "Centre — from front wall"; the notch fields
+  are "Notch width" and "Notch depth"; the selection panel ends
+  with a reminder of its keys.
+- The Blueprint tracing controls now live in a collapsed section of
+  the Room panel, so the everyday controls are easier to scan.
+
 ## [0.6.1] - 2026-10-23
 
 Fixes from the first on-machine run of v0.6.0 (thank you for the
