@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-23
+
+The feel release: the same planner, finished to feel like the
+polished online tools — direct manipulation, magnetic alignment,
+and pictures that look like a room. (Still offline, still no
+prices, still a generic catalog — by design.)
+
+### Added
+
+- **Drag furniture straight in**: catalog rows can be dragged onto
+  the plan and dropped where you want them (click-to-place still
+  works exactly as before).
+- **Magnetic alignment while dragging**: pieces snap to other
+  pieces' edges and centres, to the walls and to the room's centre
+  lines, with red guide lines showing what caught — and a live
+  readout of the gap to each wall as you drag.
+- **Skirting boards and soft shadows** in the 3D view, the
+  walkthrough and PNG snapshots alike: little boards along every
+  wall base and a soft shadow under each piece of furniture.
+- **Catalog cards**: each piece is shown as a small top-down
+  drawing of itself (a sofa with arms, a bed with its pillow band,
+  a wardrobe with doors) with its size in your units.
+- **Template gallery** (New → Template gallery…): the starter
+  rooms as picture cards with live mini-plans, pickable in one
+  click.
+- **Walk snapshots**: "Save PNG of this view" in walk mode renders
+  a picture from where you're standing.
+
 ## [0.9.0] - 2026-10-23
 
 ### Added
