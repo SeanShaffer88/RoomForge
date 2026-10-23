@@ -222,6 +222,156 @@ fn default_wall_thickness() -> f64 {
     0.1
 }
 
+/// Flooring material. Procedural — a base colour plus a pattern drawn
+/// from the material kind (planks, tiles, joints, or plain) — so plans
+/// stay self-contained with no texture files to lose. `Solid` keeps
+/// whatever colour the user picked in `Room::floor_rgb`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FloorMaterial {
+    #[default]
+    Solid,
+    OakWood,
+    WalnutWood,
+    GreyLaminate,
+    CeramicTile,
+    SlateTile,
+    BeigeCarpet,
+    PolishedConcrete,
+}
+
+/// How a material's surface pattern is drawn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FloorPattern {
+    None,
+    /// Planks running east–west, `row` metres wide, staggered joints.
+    Planks {
+        row: f64,
+        joint_every: f64,
+    },
+    /// Square tile grid, `size` metres.
+    Tiles {
+        size: f64,
+    },
+    /// Sparse expansion-joint grid, `size` metres.
+    Joints {
+        size: f64,
+    },
+}
+
+impl FloorMaterial {
+    pub fn label(self) -> &'static str {
+        match self {
+            FloorMaterial::Solid => "Solid colour (your pick)",
+            FloorMaterial::OakWood => "Oak wood planks",
+            FloorMaterial::WalnutWood => "Walnut wood planks",
+            FloorMaterial::GreyLaminate => "Grey laminate planks",
+            FloorMaterial::CeramicTile => "Ceramic tiles",
+            FloorMaterial::SlateTile => "Slate tiles",
+            FloorMaterial::BeigeCarpet => "Beige carpet",
+            FloorMaterial::PolishedConcrete => "Polished concrete",
+        }
+    }
+    pub fn all() -> [FloorMaterial; 8] {
+        [
+            FloorMaterial::Solid,
+            FloorMaterial::OakWood,
+            FloorMaterial::WalnutWood,
+            FloorMaterial::GreyLaminate,
+            FloorMaterial::CeramicTile,
+            FloorMaterial::SlateTile,
+            FloorMaterial::BeigeCarpet,
+            FloorMaterial::PolishedConcrete,
+        ]
+    }
+    /// The material's natural base colour, or None for Solid (the
+    /// user's own colour stands).
+    pub fn base_rgb(self) -> Option<[u8; 3]> {
+        match self {
+            FloorMaterial::Solid => None,
+            FloorMaterial::OakWood => Some([176, 132, 84]),
+            FloorMaterial::WalnutWood => Some([110, 76, 52]),
+            FloorMaterial::GreyLaminate => Some([150, 148, 144]),
+            FloorMaterial::CeramicTile => Some([206, 201, 191]),
+            FloorMaterial::SlateTile => Some([104, 110, 116]),
+            FloorMaterial::BeigeCarpet => Some([188, 170, 148]),
+            FloorMaterial::PolishedConcrete => Some([141, 141, 139]),
+        }
+    }
+    pub fn pattern(self) -> FloorPattern {
+        match self {
+            FloorMaterial::Solid | FloorMaterial::BeigeCarpet => FloorPattern::None,
+            FloorMaterial::OakWood | FloorMaterial::WalnutWood | FloorMaterial::GreyLaminate => {
+                FloorPattern::Planks {
+                    row: 0.12,
+                    joint_every: 1.8,
+                }
+            }
+            FloorMaterial::CeramicTile => FloorPattern::Tiles { size: 0.3 },
+            FloorMaterial::SlateTile => FloorPattern::Tiles { size: 0.45 },
+            FloorMaterial::PolishedConcrete => FloorPattern::Joints { size: 1.0 },
+        }
+    }
+    /// Pattern line segments (room coordinates) for the given floor
+    /// cells — one source of truth for the 2D plan, the 3D view, the
+    /// SVG export and the PNG snapshot. Lines align to the room's
+    /// global grid, so they run continuously across cells.
+    pub fn pattern_segments(self, cells: &[(f64, f64, f64, f64)]) -> Vec<((f64, f64), (f64, f64))> {
+        let mut out = Vec::new();
+        let eps = 1e-9;
+        match self.pattern() {
+            FloorPattern::None => {}
+            FloorPattern::Tiles { size } | FloorPattern::Joints { size } => {
+                for &(x1, y1, x2, y2) in cells {
+                    let mut gx = (x1 / size).floor() * size + size;
+                    while gx < x2 - eps {
+                        out.push(((gx, y1), (gx, y2)));
+                        gx += size;
+                    }
+                    let mut gy = (y1 / size).floor() * size + size;
+                    while gy < y2 - eps {
+                        out.push(((x1, gy), (x2, gy)));
+                        gy += size;
+                    }
+                }
+            }
+            FloorPattern::Planks { row, joint_every } => {
+                for &(x1, y1, x2, y2) in cells {
+                    let first_row = (y1 / row).floor() as i64;
+                    let mut gy = first_row as f64 * row + row;
+                    while gy < y2 - eps {
+                        out.push(((x1, gy), (x2, gy)));
+                        gy += row;
+                    }
+                    // Staggered butt joints within each row band the
+                    // cell crosses.
+                    let mut band = first_row;
+                    loop {
+                        let by1 = band as f64 * row;
+                        let by2 = by1 + row;
+                        if by1 >= y2 - eps {
+                            break;
+                        }
+                        let offset = ((band * 7) % 5) as f64 * (joint_every / 5.0);
+                        let mut k = ((x1 - offset) / joint_every).ceil() as i64;
+                        loop {
+                            let jx = offset + k as f64 * joint_every;
+                            if jx >= x2 - eps {
+                                break;
+                            }
+                            if jx > x1 + eps {
+                                out.push(((jx, by1.max(y1)), (jx, by2.min(y2))));
+                            }
+                            k += 1;
+                        }
+                        band += 1;
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
 /// A corner of the room's bounding rectangle, for notch cutting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Corner {
@@ -269,6 +419,9 @@ pub struct Room {
     /// Outline vertices (CCW, room coordinates). Empty = rectangle.
     #[serde(default)]
     pub outline: Vec<(f64, f64)>,
+    /// Flooring material (procedural pattern over `floor_rgb`).
+    #[serde(default)]
+    pub floor_material: FloorMaterial,
     /// Wall colour as [r, g, b] 0–255.
     pub wall_rgb: [u8; 3],
     /// Floor colour as [r, g, b] 0–255.
@@ -430,6 +583,7 @@ impl Default for Room {
             height_m: 2.5,
             wall_thickness_m: default_wall_thickness(),
             outline: Vec::new(),
+            floor_material: FloorMaterial::Solid,
             wall_rgb: [216, 210, 200],
             floor_rgb: [148, 112, 76],
         }
@@ -946,6 +1100,38 @@ mod tests {
         // Chair far from the door: no swing warning.
         let p = door_and_item(4.0, 3.0);
         assert!(!p.warnings().iter().any(|w| w.contains("swing")));
+    }
+
+    #[test]
+    fn floor_pattern_segments_align_to_the_room_grid() {
+        let cells = vec![(0.0, 0.0, 0.9, 0.9)];
+        // 30 cm tiles: lines at 0.3 and 0.6 in both directions.
+        let segs = FloorMaterial::CeramicTile.pattern_segments(&cells);
+        assert_eq!(segs.len(), 4, "{segs:?}");
+        assert!(segs
+            .iter()
+            .all(|&((x1, y1), (x2, y2))| x1 >= 0.0 && y1 >= 0.0 && x2 <= 0.9 && y2 <= 0.9));
+        // Solid and carpet have no pattern lines.
+        assert!(FloorMaterial::Solid.pattern_segments(&cells).is_empty());
+        assert!(FloorMaterial::BeigeCarpet
+            .pattern_segments(&cells)
+            .is_empty());
+        // Planks: one row line at 0.12 in a 0.24-tall strip, plus
+        // staggered joints (row band 0 joints at 1.8; band 1 at 0.72).
+        let strip = vec![(0.0, 0.0, 2.0, 0.24)];
+        let segs = FloorMaterial::OakWood.pattern_segments(&strip);
+        assert_eq!(segs.len(), 3, "{segs:?}");
+        // The material survives a save/load round-trip.
+        let mut p = Project::default();
+        p.room.floor_material = FloorMaterial::SlateTile;
+        let back = Project::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back.room.floor_material, FloorMaterial::SlateTile);
+        // Old files (no floor_material key) default to Solid.
+        let legacy = r#"{"format_version":2,"room":{"name":"R","width_m":5.0,
+            "depth_m":4.0,"height_m":2.5,"wall_rgb":[1,2,3],"floor_rgb":[4,5,6]},
+            "openings":[],"services":[],"items":[],"next_id":1}"#;
+        let old = Project::from_json(legacy).unwrap();
+        assert_eq!(old.room.floor_material, FloorMaterial::Solid);
     }
 
     #[test]
