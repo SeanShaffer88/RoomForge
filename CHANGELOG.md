@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-23
+
+### Added
+
+- **Lighting scenes for the 3D view**: Day, Evening and Night
+  buttons beside the orbit controls change the whole mood of the
+  room — overall brightness, a warm tint at evening, a cool one at
+  night, and window glass that goes from sky blue to sunset orange
+  to moonlight. PNG snapshots render in whichever scene is showing.
+  Scenes are deliberately simple global moods (no per-lamp lighting
+  or shadows) — the README says so plainly.
+
 ## [0.7.1] - 2026-10-23
 
 ### Added
