@@ -79,6 +79,8 @@ pub struct App {
     selected_service: Option<u64>,
     selected_note: Option<u64>,
     placing: Option<PlaceTemplate>,
+    show_help: bool,
+    text_scale: f32,
     // Room-shape (notch) form state.
     notch_h: f64,
     notch_v: f64,
@@ -306,7 +308,7 @@ impl App {
             ),
             _ => (
                 starter_project(),
-                "Welcome to RoomForge. Pick furniture on the left, click in the room to place it."
+                "Welcome to RoomForge. Pick furniture on the left, click in the room to place it. Press F1 or click Help (bottom right of the top bar) any time."
                     .to_string(),
             ),
         };
@@ -319,6 +321,8 @@ impl App {
             selected_service: None,
             selected_note: None,
             placing: None,
+            show_help: false,
+            text_scale: 1.0,
             notch_h: 1.5,
             notch_v: 1.2,
             custom_name: String::new(),
@@ -522,8 +526,12 @@ impl eframe::App for App {
         style.visuals.widgets.active.bg_fill = Color32::from_rgb(0x6B, 0x07, 0x00);
         style.visuals.selection.bg_fill = Color32::from_rgb(0x6B, 0x07, 0x00);
         ctx.set_style(style);
+        ctx.set_zoom_factor(self.text_scale);
 
         self.handle_keys(ctx);
+        if self.show_help {
+            self.help_window(ctx);
+        }
         self.top_bar(ctx);
         self.bottom_bar(ctx);
         if self.view != View::List {
@@ -546,6 +554,10 @@ impl eframe::App for App {
 
 impl App {
     fn handle_keys(&mut self, ctx: &egui::Context) {
+        // F1 opens Help even while typing somewhere.
+        if ctx.input(|i| i.key_pressed(egui::Key::F1)) {
+            self.show_help = true;
+        }
         // Don't steal keys while the user is typing in a text field.
         if ctx.memory(|m| m.focused().is_some()) {
             return;
@@ -629,6 +641,61 @@ impl App {
                 }
             });
         }
+    }
+
+    /// The plain-language guide. Everything a first-time user needs,
+    /// in words that assume no design background.
+    fn help_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_help;
+        egui::Window::new("Help — RoomForge in plain language")
+            .open(&mut open)
+            .default_width(540.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Start in four steps");
+                    ui.label("1. Set your room's size in the Room panel on the right. Width runs left-to-right; depth runs front-to-back.");
+                    ui.label("2. Add doors and windows in “Doors, windows & services”: choose a wall, then tick Door or Window.");
+                    ui.label("3. Click a piece of furniture on the left, then click in the room to place it. Drag pieces to move them; hold Shift while placing to drop several of the same piece.");
+                    ui.label("4. Check the result in the 3D view, and use the Item list to see everything's size and the materials quantities.");
+                    ui.separator();
+                    ui.heading("Words we use");
+                    ui.label("• Services — the fixed points on your walls: power sockets, water pipes, radiators, light switches, TV and network points, thermostats.");
+                    ui.label("• Notch — a rectangular bite cut out of a corner of the room, which is how you make an L-shaped room.");
+                    ui.label("• Tracing image — a photo or scan of a floor plan laid under your drawing so you can trace over it (Room panel, “Blueprint tracing”).");
+                    ui.label("• Materials list — how much floor, paint and skirting the room needs, as areas and lengths. RoomForge never tracks prices, by design.");
+                    ui.separator();
+                    ui.heading("Mouse and keys");
+                    egui::Grid::new("help-keys").striped(true).num_columns(2).show(ui, |ui| {
+                        let rows = [
+                            ("Click a list item, then click the room", "Place that furniture"),
+                            ("Drag a placed item", "Move it (5 cm steps with snapping on)"),
+                            ("Arrow keys", "Nudge the selected item by 5 cm"),
+                            ("Shift + arrow keys", "Nudge by 25 cm"),
+                            ("R / Shift+R", "Turn the selected item by 15° / 90°"),
+                            ("Delete", "Remove the selected item or note"),
+                            ("Ctrl+Z / Ctrl+Y", "Undo / redo"),
+                            ("Ctrl+S", "Save the plan"),
+                            ("1 / 2 / 3", "Switch to 2D plan / 3D view / Item list"),
+                            ("Esc", "Stop placing, or clear the selection"),
+                            ("F1", "Open this help"),
+                        ];
+                        for (keys, what) in rows {
+                            ui.strong(keys);
+                            ui.label(what);
+                            ui.end_row();
+                        }
+                    });
+                    ui.separator();
+                    ui.heading("Good to know");
+                    ui.label("• RoomForge works completely offline. Your plans never leave your computer, and there are no accounts.");
+                    ui.label("• Your work saves itself as you go: if the program closes unexpectedly, your last session is restored next time you start it.");
+                    ui.label("• A plan is a single file ending in .roomforge — copy it, email it, or back it up like any document.");
+                    ui.label("• Text too small? Use the A− / A+ buttons at the right of the Export row to change the size of everything.");
+                    ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
+                });
+            });
+        self.show_help = open;
     }
 
     fn top_bar(&mut self, ctx: &egui::Context) {
@@ -761,6 +828,30 @@ impl App {
                         self.export_to(p, &svg, "Plan 1:100");
                     }
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button("Help")
+                        .on_hover_text("Open the plain-language guide (F1)")
+                        .clicked()
+                    {
+                        self.show_help = true;
+                    }
+                    if ui
+                        .small_button("A+")
+                        .on_hover_text("Make all text bigger")
+                        .clicked()
+                    {
+                        self.text_scale = (self.text_scale + 0.1).min(1.5);
+                    }
+                    if ui
+                        .small_button("A−")
+                        .on_hover_text("Make all text smaller")
+                        .clicked()
+                    {
+                        self.text_scale = (self.text_scale - 0.1).max(0.85);
+                    }
+                    ui.label("Text size");
+                });
             });
         });
     }
@@ -1007,23 +1098,23 @@ impl App {
         ui.strong(format!("Room shape: {}", self.project.room.shape_label()));
         ui.label("Cut a rectangular notch out of a corner to make an L or U shape. Doors, windows and furniture adjust to fit.");
         ui.horizontal(|ui| {
-            ui.label("Notch along ↔ wall");
+            ui.label("Notch width");
             len_edit(
                 ui,
                 "notch-h",
                 &mut self.notch_h,
                 imp,
-                "How far the notch runs along the horizontal (north/south) wall",
+                "How far the notch runs along the top and bottom walls",
             );
         });
         ui.horizontal(|ui| {
-            ui.label("Notch along ↕ wall");
+            ui.label("Notch depth");
             len_edit(
                 ui,
                 "notch-v",
                 &mut self.notch_v,
                 imp,
-                "How far the notch runs along the vertical (east/west) wall",
+                "How far the notch runs along the side walls",
             );
         });
         for corner in [
@@ -1176,66 +1267,69 @@ impl App {
             }
         });
         ui.separator();
-        ui.strong("Blueprint tracing");
-        if self.project.underlay.is_none() {
-            if ui
-                .button("Load plan image…")
-                .on_hover_text("Lay a scanned or photographed floor plan under the drawing and trace over it. The image is stored inside the plan file")
-                .clicked()
-            {
-                if let Some(p) = open_image_dialog() {
-                    self.load_underlay(p);
-                } else {
-                    self.status = "Loading an image uses the file dialog on Windows.".into();
+        egui::CollapsingHeader::new("Blueprint tracing — lay a floor-plan image under your drawing")
+            .default_open(false)
+            .show(ui, |ui| {
+            if self.project.underlay.is_none() {
+                if ui
+                    .button("Load plan image…")
+                    .on_hover_text("Lay a scanned or photographed floor plan under the drawing and trace over it. The image is stored inside the plan file")
+                    .clicked()
+                {
+                    if let Some(p) = open_image_dialog() {
+                        self.load_underlay(p);
+                    } else {
+                        self.status = "Loading an image uses the file dialog on Windows.".into();
+                    }
                 }
-            }
-        } else {
-            if let Some(u) = &mut self.project.underlay {
-                ui.add(egui::Slider::new(&mut u.opacity, 0.15..=1.0).text("Image opacity"))
-                    .on_hover_text("How strongly the tracing image shows through");
-            }
-            if ui
-                .selectable_label(self.calibrating, "Calibrate scale")
-                .on_hover_text("Click two points on the image whose real distance you know (e.g. a doorway), type that distance, and the image rescales to match")
-                .clicked()
-            {
-                self.calibrating = true;
-                self.calib_marks.clear();
-                self.placing = None;
-                self.placing_note = false;
-            }
-            if self.calibrating {
-                ui.label(format!(
-                    "Click point {} of 2 on the plan image.",
-                    self.calib_marks.len() + 1
-                ));
-                ui.horizontal(|ui| {
-                    ui.label("Real distance");
-                    len_edit(
-                        ui,
-                        "calib-dist",
-                        &mut self.calib_dist_m,
-                        imp,
-                        "The true distance between the two points you click",
-                    );
-                });
-                if ui.button("Cancel calibration").clicked() {
-                    self.calibrating = false;
+            } else {
+                if let Some(u) = &mut self.project.underlay {
+                    ui.add(egui::Slider::new(&mut u.opacity, 0.15..=1.0).text("Image opacity"))
+                        .on_hover_text("How strongly the tracing image shows through");
+                }
+                if ui
+                    .selectable_label(self.calibrating, "Calibrate scale")
+                    .on_hover_text("Click two points on the image whose real distance you know (e.g. a doorway), type that distance, and the image rescales to match")
+                    .clicked()
+                {
+                    self.calibrating = true;
                     self.calib_marks.clear();
+                    self.placing = None;
+                    self.placing_note = false;
+                }
+                if self.calibrating {
+                    ui.label(format!(
+                        "Click point {} of 2 on the plan image.",
+                        self.calib_marks.len() + 1
+                    ));
+                    ui.horizontal(|ui| {
+                        ui.label("Real distance");
+                        len_edit(
+                            ui,
+                            "calib-dist",
+                            &mut self.calib_dist_m,
+                            imp,
+                            "The true distance between the two points you click",
+                        );
+                    });
+                    if ui.button("Cancel calibration").clicked() {
+                        self.calibrating = false;
+                        self.calib_marks.clear();
+                    }
+                }
+                if ui
+                    .button("Remove image")
+                    .on_hover_text("Take the tracing image out of this plan")
+                    .clicked()
+                {
+                    self.snapshot();
+                    self.project.underlay = None;
+                    self.underlay_tex = None;
+                    self.calibrating = false;
+                    self.mark_dirty();
                 }
             }
-            if ui
-                .button("Remove image")
-                .on_hover_text("Take the tracing image out of this plan")
-                .clicked()
-            {
-                self.snapshot();
-                self.project.underlay = None;
-                self.underlay_tex = None;
-                self.calibrating = false;
-                self.mark_dirty();
-            }
-        }
+            });
         if changed {
             self.project.room.clamp_dims();
             let room = self.project.room.clone();
@@ -1446,11 +1540,29 @@ impl App {
                     });
                 };
             }
-            fdim!("Centre X", x_m);
-            fdim!("Centre Y", y_m);
+            fdim!("Centre — from left wall", x_m);
+            fdim!("Centre — from front wall", y_m);
             fdim!("Width", width_m);
             fdim!("Depth", depth_m);
             fdim!("Height", height_m);
+            let (cw, ce, cs, cn) = it.wall_clearances(&self.project.room);
+            ui.separator();
+            ui.strong("Space around it")
+                .on_hover_text("Empty space between this item's edges and each wall — handy for checking walkways and door clearance");
+            egui::Grid::new("clearances").num_columns(2).show(ui, |ui| {
+                ui.label("To the left wall");
+                ui.label(fmt_len(cw, imp));
+                ui.end_row();
+                ui.label("To the right wall");
+                ui.label(fmt_len(ce, imp));
+                ui.end_row();
+                ui.label("To the front wall");
+                ui.label(fmt_len(cs, imp));
+                ui.end_row();
+                ui.label("To the back wall");
+                ui.label(fmt_len(cn, imp));
+                ui.end_row();
+            });
             ui.horizontal(|ui| {
                 ui.label("Rotation");
                 ui.add(
@@ -1483,6 +1595,7 @@ impl App {
                     delete = true;
                 }
             });
+            ui.label("Keys: arrow keys nudge it · R turns it · Delete removes it. (Full guide: Help, or F1.)");
             self.mark_dirty();
         }
         if duplicate {
@@ -2067,8 +2180,10 @@ impl App {
     fn three_d_view(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Orbit");
-            ui.add(egui::Slider::new(&mut self.camera.yaw_deg, 0.0..=360.0).text("Yaw°"));
-            ui.add(egui::Slider::new(&mut self.camera.pitch_deg, 15.0..=80.0).text("Pitch°"));
+            ui.add(egui::Slider::new(&mut self.camera.yaw_deg, 0.0..=360.0).text("Turn"))
+                .on_hover_text("Turn the view around the room");
+            ui.add(egui::Slider::new(&mut self.camera.pitch_deg, 15.0..=80.0).text("Tilt"))
+                .on_hover_text("Tilt the view — low for eye level, high for looking down");
             ui.add(egui::Slider::new(&mut self.camera.scale, 25.0..=160.0).text("Zoom"));
         });
         ui.horizontal(|ui| {
