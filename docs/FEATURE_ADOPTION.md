@@ -41,9 +41,9 @@ in the product plan · Later = v2+ backlog.
 |---|---|---|
 | Import 3D models (OBJ/glTF) for custom furniture | Live Home 3D (OBJ/glTF/FBX…), Sweet Home 3D (OBJ/DAE/3DS), Planner 5D Pro | **Adopt → M5** (GLB first, per-file license note; already in plan) |
 | Custom object builder (build furniture from boxes/parts in-app) | Room Arranger standout | ✅ v0.4.0 — custom-sized box items with name/group/colour, stored in the project (multi-part composition later) |
-| Custom textures from image files; PBR material sets | Chief Architect, Punch!, Live Home 3D | Adopt → M3 (with the CC0 pack; provenance manifest) |
+| Custom textures from image files; PBR material sets | Chief Architect, Punch!, Live Home 3D | Partial ✅ v0.6.0 — procedural materials (8 flooring presets: plank/tile/joint patterns drawn from the model, no texture files to lose). User image textures still Later. |
 | Curved walls | Punch!, Chief Architect | Later (after wall segments prove out) |
-| Offline photoreal rendering (path-traced stills) | Punch! LuxCore 8K, Chief Architect ray tracing | Adopt → M3 as *offline still render*; our renderer grows shadows/soft light first |
+| Offline photoreal rendering (path-traced stills) | Punch! LuxCore 8K, Chief Architect ray tracing | Partial ✅ v0.6.0 — offline PNG snapshot of the 3D view via a software rasterizer (flat-shaded, not photoreal; shadows/soft light Later) |
 | Lighting design: fixtures, switches, time-of-day sun | Chief Architect (lights↔switches), Virtual Architect (geo sun) | Adopt → M4 (fixtures + day/evening already planned; switch linking later) |
 | PDF / DXF export of the plan | Floorplanner (paid), RoomSketcher Pro, Homestyler (DWG) | PDF print Adopt → M2 (via print sheet); DXF Later |
 | Dollhouse view, 360° panorama export, camera-path video | Live Home 3D, Planner 5D, Sweet Home 3D (video) | Dollhouse = our orbit view ✅-ish; 360/video Later |
