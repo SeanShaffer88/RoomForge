@@ -82,6 +82,7 @@ pub struct App {
     placing: Option<PlaceTemplate>,
     show_help: bool,
     show_gallery: bool,
+    gallery_for_room: bool,
     text_scale: f32,
     scene: Scene,
     walking: bool,
@@ -199,6 +200,7 @@ fn starter_project() -> Project {
         sill_m: 0.0,
         height_m: 2.1,
         swings_in: true,
+        links_to: None,
     });
     let wid = p.alloc_id();
     p.openings.push(Opening {
@@ -210,6 +212,7 @@ fn starter_project() -> Project {
         sill_m: 0.9,
         height_m: 1.2,
         swings_in: false,
+        links_to: None,
     });
     let sid = p.alloc_id();
     p.services.push(ServicePoint {
@@ -261,6 +264,7 @@ fn tpl_door_window(p: &mut Project) {
         sill_m: 0.0,
         height_m: 2.1,
         swings_in: true,
+        links_to: None,
     });
     let wid = p.alloc_id();
     p.openings.push(Opening {
@@ -272,6 +276,7 @@ fn tpl_door_window(p: &mut Project) {
         sill_m: 0.9,
         height_m: 1.2,
         swings_in: false,
+        links_to: None,
     });
 }
 
@@ -330,6 +335,7 @@ impl App {
             placing: None,
             show_help: false,
             show_gallery: false,
+            gallery_for_room: false,
             text_scale: 1.0,
             scene: Scene::Day,
             walking: false,
@@ -550,6 +556,7 @@ impl eframe::App for App {
             self.gallery_window(ctx);
         }
         self.top_bar(ctx);
+        self.room_tabs(ctx);
         self.bottom_bar(ctx);
         if self.view != View::List {
             self.catalog_panel(ctx);
@@ -718,21 +725,92 @@ impl App {
                     ui.label("• Text too small? Use the A− / A+ buttons at the right of the Export row to change the size of everything.");
                     ui.label("• In the 3D view, “Walk through the room” steps inside it: W A S D move, Q/E or dragging turns your head, Esc steps back out. You bump into walls and furniture, just like real life — and “Save PNG of this view” keeps a picture of where you stood.");
                     ui.label("• New → Template gallery shows the starter rooms as pictures, if you would rather rearrange than start from bare walls.");
+                    ui.label("• A plan can hold several rooms: the Rooms strip under the top bar switches between them, “+ Add room” adds another (each room keeps its own size, flooring and furniture), and a door can be told which room it leads to. The item list and print sheet cover the whole home.");
                     ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
                 });
             });
         self.show_help = open;
     }
 
+    /// Make a room active in the UI: the library swaps the data;
+    /// here we drop every selection/tool that belonged to the old
+    /// room. No undo snapshot — callers snapshot when they should.
+    fn activate_room(&mut self, id: u64) {
+        if self.project.switch_room(id) {
+            self.selected_item = None;
+            self.selected_opening = None;
+            self.selected_service = None;
+            self.selected_note = None;
+            self.placing = None;
+            self.placing_note = false;
+            self.drag_item = None;
+            self.drag_guides = (Vec::new(), Vec::new());
+            self.walking = false;
+            self.calibrating = false;
+            self.calib_marks.clear();
+            self.status = format!("Now editing {}.", self.project.room.name);
+        }
+    }
+
+    /// Switch rooms as its own undoable step.
+    fn switch_to_room(&mut self, id: u64) {
+        if id != self.project.active_room_id {
+            self.snapshot();
+            self.activate_room(id);
+            self.mark_dirty();
+        }
+    }
+
+    /// The room tab strip under the top bar (multi-room plans).
+    fn room_tabs(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("room_tabs").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Rooms:");
+                let mut switch: Option<u64> = None;
+                for (id, name) in self.project.room_list() {
+                    let active = id == self.project.active_room_id;
+                    if ui
+                        .selectable_label(active, name)
+                        .on_hover_text("Switch to this room")
+                        .clicked()
+                        && !active
+                    {
+                        switch = Some(id);
+                    }
+                }
+                if ui
+                    .button("+ Add room")
+                    .on_hover_text("Add another room to this plan")
+                    .clicked()
+                {
+                    self.gallery_for_room = true;
+                    self.show_gallery = true;
+                }
+                if let Some(id) = switch {
+                    self.switch_to_room(id);
+                }
+            });
+        });
+    }
+
     /// The template gallery: starter rooms as picture cards.
     fn gallery_window(&mut self, ctx: &egui::Context) {
         let mut open = self.show_gallery;
         let mut chosen: Option<(String, Project)> = None;
-        egui::Window::new("Start from a template")
+        let title = if self.gallery_for_room {
+            "Add a room"
+        } else {
+            "Start from a template"
+        };
+        egui::Window::new(title)
             .open(&mut open)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.label("Pick a furnished starter room — everything in it can be moved, resized or deleted. (Undo brings your current plan back.)");
+                if self.gallery_for_room {
+                    ui.label("Pick a starter for the new room — your other rooms stay exactly as they are.");
+                } else {
+                    ui.label("Pick a furnished starter room — everything in it can be moved, resized or deleted. (Undo brings your current plan back.)");
+                }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let empty = Project::default();
@@ -756,15 +834,29 @@ impl App {
                 });
             });
         if let Some((name, p)) = chosen {
-            self.snapshot();
-            self.project = p;
-            self.selected_item = None;
-            self.selected_opening = None;
-            self.selected_service = None;
-            self.current_path = None;
-            self.status = format!("{name} template loaded.");
-            self.mark_dirty();
+            if self.gallery_for_room {
+                self.snapshot();
+                let id = self
+                    .project
+                    .add_room(roomforge::model::StoredRoom::from_project(&p));
+                self.activate_room(id);
+                self.status = format!("{name} added as a new room.");
+                self.mark_dirty();
+            } else {
+                self.snapshot();
+                self.project = p;
+                self.selected_item = None;
+                self.selected_opening = None;
+                self.selected_service = None;
+                self.current_path = None;
+                self.status = format!("{name} template loaded.");
+                self.mark_dirty();
+            }
+            self.gallery_for_room = false;
             open = false;
+        }
+        if !open {
+            self.gallery_for_room = false;
         }
         self.show_gallery = open;
     }
@@ -795,6 +887,11 @@ impl App {
                 ui.separator();
                 ui.menu_button("New", |ui| {
                     if ui.button("Template gallery…").on_hover_text("See the starter rooms as pictures and pick one").clicked() {
+                        self.show_gallery = true;
+                        ui.close();
+                    }
+                    if ui.button("Add a room…").on_hover_text("Add another room to this plan and design it too").clicked() {
+                        self.gallery_for_room = true;
                         self.show_gallery = true;
                         ui.close();
                     }
@@ -962,6 +1059,13 @@ impl App {
                     fmt_area(self.project.room.area_m2(), self.imperial),
                     self.project.items.len()
                 ));
+                if self.project.room_count() > 1 {
+                    ui.label(format!(
+                        "· {} items in {} rooms",
+                        self.project.total_items(),
+                        self.project.room_count()
+                    ));
+                }
                 ui.separator();
                 if warnings.is_empty() {
                     ui.label("No overlaps.");
@@ -1185,6 +1289,40 @@ impl App {
                 .changed()
             {
                 changed = true;
+            }
+        });
+        // Whole-plan room management (multi-room plans).
+        ui.horizontal(|ui| {
+            if ui
+                .button("Duplicate room")
+                .on_hover_text("Copy this room and everything in it as a new room")
+                .clicked()
+            {
+                self.snapshot();
+                if let Some(nid) = self.project.duplicate_room(self.project.active_room_id) {
+                    self.activate_room(nid);
+                    self.status = "Room duplicated — you're editing the copy.".into();
+                    self.mark_dirty();
+                }
+            }
+            let last = self.project.room_count() <= 1;
+            if ui
+                .add_enabled(!last, egui::Button::new("Delete room"))
+                .on_hover_text(if last {
+                    "A plan always keeps at least one room"
+                } else {
+                    "Delete this room and everything in it (Undo brings it back)"
+                })
+                .clicked()
+            {
+                self.snapshot();
+                let cur = self.project.active_room_id;
+                if self.project.delete_room(cur) {
+                    let now = self.project.active_room_id;
+                    self.activate_room(now);
+                    self.status = "Room deleted. Undo brings it back.".into();
+                    self.mark_dirty();
+                }
             }
         });
         let imp = self.imperial;
@@ -1500,6 +1638,7 @@ impl App {
                     sill_m: 0.0,
                     height_m: 2.1,
                     swings_in: true,
+                    links_to: None,
                 });
                 self.selected_opening = Some(id);
                 self.mark_dirty();
@@ -1521,6 +1660,7 @@ impl App {
                     sill_m: 0.9,
                     height_m: 1.2,
                     swings_in: false,
+                    links_to: None,
                 });
                 self.selected_opening = Some(id);
                 self.mark_dirty();
@@ -1556,6 +1696,14 @@ impl App {
             }
         });
         // Editors for the currently selected opening / service.
+        // Door link targets (other rooms), computed before the
+        // mutable borrow of the opening itself.
+        let link_targets: Vec<(u64, String)> = self
+            .project
+            .room_list()
+            .into_iter()
+            .filter(|(id, _)| *id != self.project.active_room_id)
+            .collect();
         if let Some(oid) = self.selected_opening {
             if let Some(o) = self.project.openings.iter_mut().find(|o| o.id == oid) {
                 ui.separator();
@@ -1589,6 +1737,38 @@ impl App {
                 }
                 if o.kind == OpeningKind::Door {
                     ui.checkbox(&mut o.swings_in, "Swings into the room");
+                    if !link_targets.is_empty() {
+                        ui.horizontal(|ui| {
+                            ui.label("Leads to");
+                            let cur = o
+                                .links_to
+                                .and_then(|t| {
+                                    link_targets
+                                        .iter()
+                                        .find(|(id, _)| *id == t)
+                                        .map(|(_, n)| n.clone())
+                                })
+                                .unwrap_or_else(|| "—".into());
+                            egui::ComboBox::from_id_salt(format!("leads-{oid}"))
+                                .selected_text(cur)
+                                .show_ui(ui, |ui| {
+                                    if ui
+                                        .selectable_label(o.links_to.is_none(), "— (not set)")
+                                        .clicked()
+                                    {
+                                        o.links_to = None;
+                                    }
+                                    for (tid, tname) in &link_targets {
+                                        if ui
+                                            .selectable_label(o.links_to == Some(*tid), tname)
+                                            .clicked()
+                                        {
+                                            o.links_to = Some(*tid);
+                                        }
+                                    }
+                                });
+                        });
+                    }
                 }
                 let room = self.project.room.clone();
                 o.clamp_to_wall(&room);
@@ -2714,7 +2894,113 @@ impl App {
 
     // ---------- item list ----------
 
+    /// The item list for a multi-room plan: one section per room,
+    /// then whole-home totals.
+    fn list_view_multi(&mut self, ui: &mut egui::Ui) {
+        let imp = self.imperial;
+        ui.heading(format!(
+            "Home — item list ({} rooms)",
+            self.project.room_count()
+        ));
+        ui.label(format!(
+            "{} pieces of furniture across the whole plan. No prices are tracked in RoomForge.",
+            self.project.total_items()
+        ));
+        let mut totals = roomforge::model::MaterialsReport::default();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (id, name) in self.project.room_list() {
+                let Some(single) = self.project.as_single(id) else {
+                    continue;
+                };
+                ui.separator();
+                ui.heading(format!(
+                    "{} — {} × {}, floor area {}",
+                    name,
+                    fmt_len(single.room.width_m, imp),
+                    fmt_len(single.room.depth_m, imp),
+                    fmt_area(single.room.area_m2(), imp)
+                ));
+                egui::Grid::new(format!("items-{id}"))
+                    .num_columns(4)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Item");
+                        ui.strong("Category");
+                        ui.strong("Size (W × D × H)");
+                        ui.strong("Qty");
+                        ui.end_row();
+                        for (n, cat, w, d, h, qty) in single.item_list() {
+                            ui.label(n);
+                            ui.label(cat);
+                            ui.label(format!(
+                                "{} × {} × {}",
+                                fmt_len(w, imp),
+                                fmt_len(d, imp),
+                                fmt_len(h, imp)
+                            ));
+                            ui.label(qty.to_string());
+                            ui.end_row();
+                        }
+                    });
+                for o in &single.openings {
+                    let link = o
+                        .links_to
+                        .and_then(|t| self.project.room_name(t))
+                        .map(|n| format!(" → {n}"))
+                        .unwrap_or_default();
+                    ui.label(format!(
+                        "{} — {} wall, {} from the corner, {} wide{}",
+                        o.kind.label(),
+                        o.wall.label(),
+                        fmt_len(o.offset_m, imp),
+                        fmt_len(o.width_m, imp),
+                        link
+                    ));
+                }
+                for s in &single.services {
+                    ui.label(format!(
+                        "{} — {} wall, {} from the corner",
+                        s.kind.label(),
+                        s.wall.label(),
+                        fmt_len(s.offset_m, imp)
+                    ));
+                }
+                let m = single.materials();
+                totals.floor_area_m2 += m.floor_area_m2;
+                totals.ceiling_area_m2 += m.ceiling_area_m2;
+                totals.wall_gross_m2 += m.wall_gross_m2;
+                totals.openings_m2 += m.openings_m2;
+                totals.wall_net_m2 += m.wall_net_m2;
+                totals.skirting_m += m.skirting_m;
+                totals.perimeter_m += m.perimeter_m;
+                ui.label(format!(
+                    "Materials — floor {} · walls to finish {} · skirting {}",
+                    fmt_area(m.floor_area_m2, imp),
+                    fmt_area(m.wall_net_m2, imp),
+                    fmt_len(m.skirting_m, imp)
+                ));
+                let w = single.warnings();
+                if !w.is_empty() {
+                    ui.colored_label(RED, format!("⚠ {}", w.join(" · ")));
+                }
+            }
+            ui.separator();
+            ui.heading("Whole home — materials totals");
+            ui.label(format!(
+                "Floor / ceiling area {} · Wall area to finish (net) {} · Skirting {} · Perimeter {}",
+                fmt_area(totals.floor_area_m2, imp),
+                fmt_area(totals.wall_net_m2, imp),
+                fmt_len(totals.skirting_m, imp),
+                fmt_len(totals.perimeter_m, imp)
+            ));
+        });
+    }
+
     fn list_view(&mut self, ui: &mut egui::Ui) {
+        if self.project.room_count() > 1 {
+            self.list_view_multi(ui);
+            return;
+        }
         ui.heading(format!("{} — item list", self.project.room.name));
         ui.label(format!(
             "Room {} × {}, ceiling {}, floor area {}. No prices are tracked in RoomForge.",
