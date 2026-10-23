@@ -641,6 +641,23 @@ impl PlacedItem {
         self.x_m = x;
         self.y_m = y;
     }
+    /// Clear space between this item's (rotated) bounding box and
+    /// each side of the room, as (west, east, south, north) in metres,
+    /// never negative. Measured to the room's bounding rectangle, so
+    /// treat it as a guide in notched rooms.
+    pub fn wall_clearances(&self, room: &Room) -> (f64, f64, f64, f64) {
+        let cs = self.corners();
+        let min_x = cs.iter().map(|c| c.0).fold(f64::INFINITY, f64::min);
+        let max_x = cs.iter().map(|c| c.0).fold(f64::NEG_INFINITY, f64::max);
+        let min_y = cs.iter().map(|c| c.1).fold(f64::INFINITY, f64::min);
+        let max_y = cs.iter().map(|c| c.1).fold(f64::NEG_INFINITY, f64::max);
+        (
+            min_x.max(0.0),
+            (room.width_m - max_x).max(0.0),
+            min_y.max(0.0),
+            (room.depth_m - max_y).max(0.0),
+        )
+    }
     pub fn normalised_rotation(&self) -> f64 {
         let r = self.rotation_deg % 360.0;
         if r < 0.0 {
@@ -1105,6 +1122,31 @@ mod tests {
         // Chair far from the door: no swing warning.
         let p = door_and_item(4.0, 3.0);
         assert!(!p.warnings().iter().any(|w| w.contains("swing")));
+    }
+
+    #[test]
+    fn wall_clearances_measure_the_gaps() {
+        let p = Project::default(); // 5 x 4 room
+        let mut it = PlacedItem {
+            id: 1,
+            catalog_id: "x".into(),
+            name: "Box".into(),
+            category: "Test".into(),
+            x_m: 2.5,
+            y_m: 2.0,
+            width_m: 1.0,
+            depth_m: 1.0,
+            height_m: 1.0,
+            rotation_deg: 0.0,
+            rgb: [0, 0, 0],
+        };
+        let (w, e, s, n) = it.wall_clearances(&p.room);
+        assert!((w - 2.0).abs() < 1e-9 && (e - 2.0).abs() < 1e-9);
+        assert!((s - 1.5).abs() < 1e-9 && (n - 1.5).abs() < 1e-9);
+        // Rotating 45° grows the bounding box, shrinking every gap.
+        it.rotation_deg = 45.0;
+        let (w2, _, s2, _) = it.wall_clearances(&p.room);
+        assert!(w2 < w && s2 < s, "rotated gaps {w2} {s2}");
     }
 
     #[test]
