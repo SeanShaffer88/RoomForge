@@ -232,6 +232,63 @@ pub fn list_csv(p: &Project) -> String {
 /// and the openings/services schedule. Open it in any browser and print
 /// (or print to PDF).
 pub fn print_html(p: &Project, imperial: bool) -> String {
+    let head = format!(
+        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n",
+        esc(&p.room.name)
+    );
+    let tail = "\n<p>Drawn to scale by RoomForge. Service symbols: E = socket, W = pipe/water, R = radiator, S = light switch, TV = TV point, N = network point, TH = thermostat.</p></body></html>\n";
+    if p.room_count() == 1 {
+        return format!(
+            "{head}<body><h1>{} — {} × {} (ceiling {})</h1>\n{}{tail}",
+            esc(&p.room.name),
+            crate::units::fmt_len(p.room.width_m, imperial),
+            crate::units::fmt_len(p.room.depth_m, imperial),
+            crate::units::fmt_len(p.room.height_m, imperial),
+            room_body(p, p, imperial),
+        );
+    }
+    // Multi-room: a section per room, then whole-home totals.
+    let mut out = format!(
+        "{head}<body><h1>Home plan — {} rooms · {} items</h1>",
+        p.room_count(),
+        p.total_items()
+    );
+    let mut totals = crate::model::MaterialsReport::default();
+    for (id, name) in p.room_list() {
+        let Some(single) = p.as_single(id) else {
+            continue;
+        };
+        let m = single.materials();
+        totals.floor_area_m2 += m.floor_area_m2;
+        totals.ceiling_area_m2 += m.ceiling_area_m2;
+        totals.wall_gross_m2 += m.wall_gross_m2;
+        totals.openings_m2 += m.openings_m2;
+        totals.wall_net_m2 += m.wall_net_m2;
+        totals.skirting_m += m.skirting_m;
+        totals.perimeter_m += m.perimeter_m;
+        out.push_str(&format!(
+            "\n<h2>{} — {} × {} (ceiling {})</h2>\n{}",
+            esc(&name),
+            crate::units::fmt_len(single.room.width_m, imperial),
+            crate::units::fmt_len(single.room.depth_m, imperial),
+            crate::units::fmt_len(single.room.height_m, imperial),
+            room_body(p, &single, imperial),
+        ));
+    }
+    out.push_str(&materials_table(
+        "Whole-home materials — quantities only",
+        &totals,
+        imperial,
+    ));
+    out.push_str(tail);
+    out
+}
+
+/// The printable body for ONE room (its plan SVG, item list,
+/// fittings schedule, notes and materials). `whole` resolves door
+/// link targets to room names; `single` is the room's own view.
+fn room_body(whole: &Project, single: &Project, imperial: bool) -> String {
+    let p = single;
     let svg = plan_svg(p, 90.0, imperial);
     let mut rows = String::new();
     for (name, cat, w, d, h, n) in p.item_list() {
@@ -250,12 +307,18 @@ pub fn print_html(p: &Project, imperial: bool) -> String {
     }
     let mut fittings = String::new();
     for o in &p.openings {
+        let link = o
+            .links_to
+            .and_then(|t| whole.room_name(t))
+            .map(|n| format!(" → {}", esc(&n)))
+            .unwrap_or_default();
         fittings.push_str(&format!(
-            "<li>{} — {} wall, {} from the corner, {} wide</li>",
+            "<li>{} — {} wall, {} from the corner, {} wide{}</li>",
             o.kind.label(),
             o.wall.label(),
             crate::units::fmt_len(o.offset_m, imperial),
-            crate::units::fmt_len(o.width_m, imperial)
+            crate::units::fmt_len(o.width_m, imperial),
+            link
         ));
     }
     for svc in &p.services {
@@ -278,34 +341,32 @@ pub fn print_html(p: &Project, imperial: bool) -> String {
     } else {
         format!("<h2>Notes on the plan</h2><ol>{notes}</ol>")
     };
-    let m = p.materials();
-    let materials_section = format!(
-        "<h2>Materials — quantities only</h2><table>\
+    let materials_section =
+        materials_table("Materials — quantities only", &p.materials(), imperial);
+    format!(
+        "{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>{}{}",
+        svg, rows, fittings, notes_section, materials_section
+    )
+}
+
+/// A materials quantities table (shared by room sections and the
+/// whole-home totals).
+fn materials_table(title: &str, m: &crate::model::MaterialsReport, imperial: bool) -> String {
+    format!(
+        "<h2>{}</h2><table>\
         <tr><td>Floor / ceiling area</td><td>{}</td></tr>\
         <tr><td>Wall area (gross)</td><td>{}</td></tr>\
         <tr><td>Less doors &amp; windows</td><td>{}</td></tr>\
         <tr><td>Wall area to finish (net)</td><td>{}</td></tr>\
         <tr><td>Skirting / baseboard length</td><td>{}</td></tr>\
         <tr><td>Room perimeter</td><td>{}</td></tr></table>",
+        title,
         crate::units::fmt_area(m.floor_area_m2, imperial),
         crate::units::fmt_area(m.wall_gross_m2, imperial),
         crate::units::fmt_area(m.openings_m2, imperial),
         crate::units::fmt_area(m.wall_net_m2, imperial),
         crate::units::fmt_len(m.skirting_m, imperial),
         crate::units::fmt_len(m.perimeter_m, imperial)
-    );
-    format!(
-        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{} — RoomForge plan</title>\n<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#111}}table{{border-collapse:collapse;margin-top:12px}}td,th{{border:1px solid #999;padding:4px 10px;text-align:left}}h1{{font-size:20px}}h2{{font-size:15px;margin-top:24px}}@media print{{body{{margin:8px}}}}</style></head>\n<body><h1>{} — {} × {} (ceiling {})</h1>\n{}\n<h2>Item list</h2><table><tr><th>Item</th><th>Category</th><th>Size (W × D × H)</th><th>Qty</th></tr>{}</table>\n<h2>Doors, windows and services</h2><ul>{}</ul>{}{}\n<p>Drawn to scale by RoomForge. Service symbols: E = socket, W = pipe/water, R = radiator, S = light switch, TV = TV point, N = network point, TH = thermostat.</p></body></html>\n",
-        esc(&p.room.name),
-        esc(&p.room.name),
-        crate::units::fmt_len(p.room.width_m, imperial),
-        crate::units::fmt_len(p.room.depth_m, imperial),
-        crate::units::fmt_len(p.room.height_m, imperial),
-        svg,
-        rows,
-        fittings,
-        notes_section,
-        materials_section
     )
 }
 
@@ -340,6 +401,7 @@ mod tests {
             sill_m: 0.0,
             height_m: 2.1,
             swings_in: true,
+            links_to: None,
         });
         p
     }
@@ -393,6 +455,33 @@ mod tests {
         assert!(html.contains("Door — South wall"));
         assert!(html.contains("Materials — quantities only"));
         assert!(!html.to_lowercase().contains("price"));
+    }
+
+    #[test]
+    fn print_html_covers_every_room() {
+        let mut p = Project::default();
+        p.room.name = "Lounge".into();
+        let mut tpl = Project::default();
+        tpl.room.name = "Study".into();
+        let study = p.add_room(StoredRoom::from_project(&tpl));
+        let oid = p.alloc_id();
+        p.openings.push(Opening {
+            id: oid,
+            kind: OpeningKind::Door,
+            wall: Wall::East,
+            offset_m: 1.0,
+            width_m: 0.9,
+            sill_m: 0.0,
+            height_m: 2.1,
+            swings_in: true,
+            links_to: Some(study),
+        });
+        let html = print_html(&p, false);
+        assert!(html.contains("Home plan — 2 rooms"), "{html:.0}");
+        assert!(html.contains("Lounge"), "{html:.0}");
+        assert!(html.contains("Study"), "{html:.0}");
+        assert!(html.contains("→ Study"), "door link shown: {html:.0}");
+        assert!(html.contains("Whole-home materials"), "{html:.0}");
     }
 
     #[test]
