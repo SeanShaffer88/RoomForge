@@ -11,3 +11,4 @@ pub mod model;
 pub mod render;
 pub mod units;
 pub mod view3d;
+pub mod walk;
