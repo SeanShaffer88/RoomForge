@@ -905,6 +905,11 @@ impl Project {
         let mut out = Vec::new();
         for i in 0..self.items.len() {
             for j in (i + 1)..self.items.len() {
+                // Flat items (rugs, 0.03 m or thinner) are meant to go
+                // under furniture — never warn about those pairs.
+                if self.items[i].height_m <= 0.03 || self.items[j].height_m <= 0.03 {
+                    continue;
+                }
                 if crate::geometry::obb_overlap(&self.items[i].corners(), &self.items[j].corners())
                 {
                     out.push(format!(
@@ -1100,6 +1105,42 @@ mod tests {
         // Chair far from the door: no swing warning.
         let p = door_and_item(4.0, 3.0);
         assert!(!p.warnings().iter().any(|w| w.contains("swing")));
+    }
+
+    #[test]
+    fn rugs_under_furniture_do_not_warn() {
+        let mut p = Project::default();
+        let mk = |p: &mut Project, name: &str, h: f64| {
+            let id = p.alloc_id();
+            p.items.push(PlacedItem {
+                id,
+                catalog_id: "x".into(),
+                name: name.into(),
+                category: "Test".into(),
+                x_m: 2.0,
+                y_m: 2.0,
+                width_m: 1.5,
+                depth_m: 1.0,
+                height_m: h,
+                rotation_deg: 0.0,
+                rgb: [1, 2, 3],
+            });
+        };
+        mk(&mut p, "Rug, large", 0.02);
+        mk(&mut p, "Sofa", 0.85);
+        assert!(
+            p.warnings().iter().all(|w| !w.contains("overlaps")),
+            "rug under a sofa must not warn: {:?}",
+            p.warnings()
+        );
+        // Two real pieces in the same spot still warn.
+        let mut p2 = Project::default();
+        mk(&mut p2, "Sofa", 0.85);
+        mk(&mut p2, "Table", 0.75);
+        assert!(p2
+            .warnings()
+            .iter()
+            .any(|w| w == "Sofa overlaps Table" || w == "Table overlaps Sofa"));
     }
 
     #[test]
