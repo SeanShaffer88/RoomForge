@@ -4,7 +4,7 @@
 
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use roomforge::catalog::{catalog, categories, CatalogItem};
-use roomforge::geometry::{point_in_obb, snap};
+use roomforge::geometry::{align_snap, point_in_obb, snap};
 use roomforge::model::{
     Annotation, Corner, Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
 };
@@ -81,6 +81,7 @@ pub struct App {
     selected_note: Option<u64>,
     placing: Option<PlaceTemplate>,
     show_help: bool,
+    show_gallery: bool,
     text_scale: f32,
     scene: Scene,
     walking: bool,
@@ -113,6 +114,8 @@ pub struct App {
     dirty: bool,
     last_autosave: Instant,
     drag_item: Option<u64>,
+    catalog_dragging: bool,
+    drag_guides: (Vec<f64>, Vec<f64>),
     drag_offset: (f64, f64),
     drag_snapshot_done: bool,
 }
@@ -326,6 +329,7 @@ impl App {
             selected_note: None,
             placing: None,
             show_help: false,
+            show_gallery: false,
             text_scale: 1.0,
             scene: Scene::Day,
             walking: false,
@@ -354,6 +358,8 @@ impl App {
             dirty: false,
             last_autosave: Instant::now(),
             drag_item: None,
+            catalog_dragging: false,
+            drag_guides: (Vec::new(), Vec::new()),
             drag_offset: (0.0, 0.0),
             drag_snapshot_done: false,
         }
@@ -540,6 +546,9 @@ impl eframe::App for App {
         if self.show_help {
             self.help_window(ctx);
         }
+        if self.show_gallery {
+            self.gallery_window(ctx);
+        }
         self.top_bar(ctx);
         self.bottom_bar(ctx);
         if self.view != View::List {
@@ -551,6 +560,11 @@ impl eframe::App for App {
             View::ThreeD => self.three_d_view(ui),
             View::List => self.list_view(ui),
         });
+
+        // A catalog drag that ended anywhere else just disarms.
+        if self.catalog_dragging && ctx.input(|i| !i.pointer.any_down()) {
+            self.catalog_dragging = false;
+        }
 
         // Autosave at most every 5 seconds while there are changes.
         if self.dirty && self.last_autosave.elapsed().as_secs() >= 5 {
@@ -666,7 +680,7 @@ impl App {
                     ui.heading("Start in four steps");
                     ui.label("1. Set your room's size in the Room panel on the right. Width runs left-to-right; depth runs front-to-back.");
                     ui.label("2. Add doors and windows in “Doors, windows & services”: choose a wall, then tick Door or Window.");
-                    ui.label("3. Click a piece of furniture on the left, then click in the room to place it. Drag pieces to move them; hold Shift while placing to drop several of the same piece.");
+                    ui.label("3. Click a piece of furniture on the left, then click in the room to place it — or drag it straight in from the list. Drag pieces to move them: they snap to the grid and align magnetically with each other, with red guide lines and the gaps to each wall shown as you go.");
                     ui.label("4. Check the result in the 3D view, and use the Item list to see everything's size and the materials quantities.");
                     ui.separator();
                     ui.heading("Words we use");
@@ -702,11 +716,76 @@ impl App {
                     ui.label("• Your work saves itself as you go: if the program closes unexpectedly, your last session is restored next time you start it.");
                     ui.label("• A plan is a single file ending in .roomforge — copy it, email it, or back it up like any document.");
                     ui.label("• Text too small? Use the A− / A+ buttons at the right of the Export row to change the size of everything.");
-                    ui.label("• In the 3D view, “Walk through the room” steps inside it: W A S D move, Q/E or dragging turns your head, Esc steps back out. You bump into walls and furniture, just like real life.");
+                    ui.label("• In the 3D view, “Walk through the room” steps inside it: W A S D move, Q/E or dragging turns your head, Esc steps back out. You bump into walls and furniture, just like real life — and “Save PNG of this view” keeps a picture of where you stood.");
+                    ui.label("• New → Template gallery shows the starter rooms as pictures, if you would rather rearrange than start from bare walls.");
                     ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
                 });
             });
         self.show_help = open;
+    }
+
+    /// The template gallery: starter rooms as picture cards.
+    fn gallery_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_gallery;
+        let mut chosen: Option<(String, Project)> = None;
+        egui::Window::new("Start from a template")
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("Pick a furnished starter room — everything in it can be moved, resized or deleted. (Undo brings your current plan back.)");
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    let empty = Project::default();
+                    if template_card(ui, "Empty room", "A blank 5 × 4 m room, ready to shape.", &empty) {
+                        chosen = Some(("Empty room".into(), empty));
+                    }
+                    let living = starter_project();
+                    if template_card(ui, "Living room", "Sofa, TV bench, coffee table, dining set.", &living) {
+                        chosen = Some(("Living room".into(), living));
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let bed = bedroom_project();
+                    if template_card(ui, "Bedroom", "Bed, wardrobe, dresser and a lamp.", &bed) {
+                        chosen = Some(("Bedroom".into(), bed));
+                    }
+                    let office = office_project();
+                    if template_card(ui, "Home office", "Desk, chair, bookcase and storage.", &office) {
+                        chosen = Some(("Home office".into(), office));
+                    }
+                });
+            });
+        if let Some((name, p)) = chosen {
+            self.snapshot();
+            self.project = p;
+            self.selected_item = None;
+            self.selected_opening = None;
+            self.selected_service = None;
+            self.current_path = None;
+            self.status = format!("{name} template loaded.");
+            self.mark_dirty();
+            open = false;
+        }
+        self.show_gallery = open;
+    }
+
+    /// Save a PNG of the walkthrough, from where the visitor stands.
+    fn save_walk_snapshot(&mut self) {
+        let name = format!(
+            "{}-walk",
+            self.project
+                .room
+                .name
+                .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-")
+        );
+        if let Some(path) = save_dialog("PNG image", "png", &name) {
+            let img =
+                roomforge::render::render_walk(&self.project, &self.walker, self.scene, 1280, 800);
+            match img.save(&path) {
+                Ok(()) => self.status = format!("Walk view written to {}", path.display()),
+                Err(e) => self.status = format!("Could not write {}: {e}", path.display()),
+            }
+        }
     }
 
     fn top_bar(&mut self, ctx: &egui::Context) {
@@ -715,6 +794,10 @@ impl App {
                 ui.heading("RoomForge");
                 ui.separator();
                 ui.menu_button("New", |ui| {
+                    if ui.button("Template gallery…").on_hover_text("See the starter rooms as pictures and pick one").clicked() {
+                        self.show_gallery = true;
+                        ui.close();
+                    }
                     if ui.button("Empty room").on_hover_text("Start a new, empty room").clicked() {
                         self.snapshot();
                         self.project = Project::default();
@@ -897,7 +980,7 @@ impl App {
             .default_width(215.0)
             .show(ctx, |ui| {
                 ui.heading("Furniture");
-                ui.label("Click an item, then click in the room to place it. Drag placed items to move them.");
+                ui.label("Click an item, then click in the room to place it — or drag it straight in. Drag placed items to move them.");
                 ui.text_edit_singleline(&mut self.catalog_search)
                     .on_hover_text("Filter the catalog by name");
                 ui.separator();
@@ -913,11 +996,41 @@ impl App {
                         }
                         egui::CollapsingHeader::new(cat).default_open(true).show(ui, |ui| {
                             for c in items {
-                                let label = format!("{}  ({:.2}×{:.2} m)", c.name, c.width_m, c.depth_m);
                                 let selected = self.placing.as_ref().map(|p| p.catalog_id.as_str()) == Some(c.id);
-                                if ui.selectable_label(selected, label).on_hover_text("Click, then click in the room to place it. Hold Shift while placing to place several.").clicked() {
+                                let row = ui
+                                    .horizontal(|ui| {
+                                        let (gre, _) = ui.allocate_exact_size(
+                                            egui::vec2(44.0, 44.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        draw_item_glyph(ui.painter(), gre, &c);
+                                        ui.vertical(|ui| {
+                                            ui.strong(c.name);
+                                            ui.small(format!(
+                                                "{} × {}",
+                                                fmt_len(c.width_m, self.imperial),
+                                                fmt_len(c.depth_m, self.imperial)
+                                            ));
+                                        });
+                                    })
+                                    .response
+                                    .interact(egui::Sense::click_and_drag());
+                                if selected {
+                                    ui.painter().rect_stroke(
+                                        row.rect,
+                                        4.0,
+                                        Stroke::new(1.5_f32, RED),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                }
+                                let row = row.on_hover_text("Click, then click in the room to place it — or drag it straight in. Hold Shift while placing to place several.");
+                                if row.clicked() {
                                     self.status = format!("Placing: {}. Click in the room.", c.name);
                                     self.placing = Some(PlaceTemplate::from(&c));
+                                } else if row.drag_started() {
+                                    self.status = format!("Placing: {}. Drop it in the room.", c.name);
+                                    self.placing = Some(PlaceTemplate::from(&c));
+                                    self.catalog_dragging = true;
                                 }
                             }
                         });
@@ -1908,6 +2021,45 @@ impl App {
             );
         }
 
+        // Alignment guides + live gap readout while dragging.
+        if self.drag_item.is_some() {
+            let guide_col = Color32::from_rgba_unmultiplied(229, 72, 77, 170);
+            for gx in &self.drag_guides.0 {
+                painter.line_segment(
+                    [to_screen(*gx, 0.0), to_screen(*gx, room.depth_m)],
+                    Stroke::new(1.5_f32, guide_col),
+                );
+            }
+            for gy in &self.drag_guides.1 {
+                painter.line_segment(
+                    [to_screen(0.0, *gy), to_screen(room.width_m, *gy)],
+                    Stroke::new(1.5_f32, guide_col),
+                );
+            }
+            if let Some(it) = self
+                .project
+                .items
+                .iter()
+                .find(|i| Some(i.id) == self.drag_item)
+            {
+                let (w, e, s, n) = it.wall_clearances(&room);
+                let imp = self.imperial;
+                painter.text(
+                    rect.min + egui::vec2(10.0, 8.0),
+                    egui::Align2::LEFT_TOP,
+                    format!(
+                        "Gaps — left {} · right {} · front {} · back {}",
+                        fmt_len(w, imp),
+                        fmt_len(e, imp),
+                        fmt_len(s, imp),
+                        fmt_len(n, imp)
+                    ),
+                    FontId::proportional(13.0),
+                    Color32::from_rgb(245, 245, 245),
+                );
+            }
+        }
+
         // Placement ghost / interactions.
         if let Some(pos) = response.interact_pointer_pos() {
             let (rx, ry) = to_room(pos);
@@ -1995,7 +2147,11 @@ impl App {
                     Color32::from_rgba_unmultiplied(229, 72, 77, 110),
                     Stroke::new(2.0_f32, RED),
                 ));
-                if response.clicked() {
+                let dropped = self.catalog_dragging && ui.ctx().input(|i| i.pointer.any_released());
+                if dropped {
+                    self.catalog_dragging = false;
+                }
+                if response.clicked() || dropped {
                     self.snapshot();
                     let id = self.project.alloc_id();
                     let mut item = fake;
@@ -2045,13 +2201,52 @@ impl App {
                         self.drag_snapshot_done = true;
                     }
                     let (ox, oy) = self.drag_offset;
-                    if let Some(it) = self.project.items.iter_mut().find(|i| i.id == id) {
-                        it.x_m = rx + ox;
-                        it.y_m = ry + oy;
+                    let (mut nx, mut ny) = (rx + ox, ry + oy);
+                    // Magnetic alignment to other items and the room
+                    // first; the 5 cm grid fills in per axis where no
+                    // alignment caught.
+                    let mut guides = (Vec::new(), Vec::new());
+                    if let Some(cur) = self.project.items.iter().find(|i| i.id == id) {
+                        let bb = cur.aabb();
+                        let shifted = (
+                            bb.0 + (nx - cur.x_m),
+                            bb.1 + (ny - cur.y_m),
+                            bb.2 + (nx - cur.x_m),
+                            bb.3 + (ny - cur.y_m),
+                        );
+                        let others: Vec<(f64, f64, f64, f64)> = self
+                            .project
+                            .items
+                            .iter()
+                            .filter(|i| i.id != id)
+                            .map(|i| i.aabb())
+                            .collect();
+                        let al = align_snap(
+                            shifted,
+                            &others,
+                            self.project.room.width_m,
+                            self.project.room.depth_m,
+                            0.09,
+                        );
+                        nx += al.dx;
+                        ny += al.dy;
+                        guides = (al.guides_x, al.guides_y);
                         if self.snap_enabled {
-                            it.x_m = snap(it.x_m, 0.05);
-                            it.y_m = snap(it.y_m, 0.05);
+                            if al.dx == 0.0 {
+                                nx = snap(nx, 0.05);
+                            }
+                            if al.dy == 0.0 {
+                                ny = snap(ny, 0.05);
+                            }
                         }
+                    } else if self.snap_enabled {
+                        nx = snap(nx, 0.05);
+                        ny = snap(ny, 0.05);
+                    }
+                    self.drag_guides = guides;
+                    if let Some(it) = self.project.items.iter_mut().find(|i| i.id == id) {
+                        it.x_m = nx;
+                        it.y_m = ny;
                         let room2 = self.project.room.clone();
                         it.clamp_inside(&room2);
                     }
@@ -2061,6 +2256,7 @@ impl App {
             if response.drag_stopped() {
                 self.drag_item = None;
                 self.drag_snapshot_done = false;
+                self.drag_guides = (Vec::new(), Vec::new());
             }
             if response.clicked() && self.drag_item.is_none() {
                 // Click on empty space clears the furniture selection.
@@ -2216,6 +2412,14 @@ impl App {
                 {
                     self.scene = s;
                 }
+            }
+            ui.separator();
+            if ui
+                .button("Save PNG of this view")
+                .on_hover_text("Render the view from where you're standing to a PNG picture")
+                .clicked()
+            {
+                self.save_walk_snapshot();
             }
         });
         ui.label("W A S D or the arrow keys move you · Q / E or dragging turns your head · Shift walks faster · Esc steps back out.");
@@ -2427,6 +2631,26 @@ impl App {
                 Draw::Fill(pts, rgb(shade_scene(room.wall_rgb, bright, self.scene))),
             ));
         }
+        // Skirting boards along every wall base.
+        for i in 0..outline.len() {
+            let a = outline[i];
+            let b = outline[(i + 1) % outline.len()];
+            let (pts, depth) = face_of(&roomforge::view3d::skirting_quad(a, b), &pr);
+            draws.push((
+                depth,
+                Draw::Fill(pts, rgb(shade_scene(room.wall_rgb, 1.18, self.scene))),
+            ));
+        }
+        // Soft shadows under the furniture.
+        for it in &self.project.items {
+            if let Some(q) = roomforge::view3d::shadow_quad(it) {
+                let (pts, depth) = face_of(&q, &pr);
+                draws.push((
+                    depth - 0.04,
+                    Draw::Fill(pts, rgb(shade_scene(room.floor_rgb, 0.55, self.scene))),
+                ));
+            }
+        }
         // Furniture boxes
         for it in &self.project.items {
             let corners = box_corners(it);
@@ -2600,4 +2824,162 @@ fn face_of(
         depth += d;
     }
     (pts, depth / 4.0)
+}
+
+/// Draw a tiny top-down picture of a catalog item into `rect`:
+/// its real footprint in its own colour, with a simple detail per
+/// category (sofa arms, a bed's pillow band, a wardrobe's doors…)
+/// so the catalog reads like a shelf of little plans, not a list.
+fn draw_item_glyph(painter: &egui::Painter, rect: Rect, c: &CatalogItem) {
+    let max_w = rect.width() - 8.0;
+    let max_h = rect.height() - 8.0;
+    let sc = (max_w / c.width_m as f32).min(max_h / c.depth_m as f32);
+    let w = c.width_m as f32 * sc;
+    let h = c.depth_m as f32 * sc;
+    let fp = Rect::from_center_size(rect.center(), egui::vec2(w, h));
+    let base = rgb(c.rgb);
+    painter.rect_filled(fp, 2.0, base);
+    painter.rect_stroke(
+        fp,
+        2.0,
+        Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 0, 0, 120)),
+        egui::StrokeKind::Inside,
+    );
+    let ink = Color32::from_rgba_unmultiplied(0, 0, 0, 110);
+    let paper = Color32::from_rgba_unmultiplied(255, 255, 255, 150);
+    let x0 = fp.left();
+    let x1 = fp.right();
+    let y0 = fp.top();
+    let y1 = fp.bottom();
+    let cx = fp.center().x;
+    let cy = fp.center().y;
+    match c.category {
+        "Seating" => {
+            // Back band along the top, arm strips at the sides.
+            painter.rect_filled(
+                Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x1, y0 + h * 0.2)),
+                0.0,
+                ink,
+            );
+            painter.rect_filled(
+                Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x0 + w * 0.16, y1)),
+                0.0,
+                ink,
+            );
+            painter.rect_filled(
+                Rect::from_min_max(Pos2::new(x1 - w * 0.16, y0), Pos2::new(x1, y1)),
+                0.0,
+                ink,
+            );
+        }
+        "Beds" => {
+            // Pillow band.
+            painter.rect_filled(
+                Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x1, y0 + h * 0.24)),
+                0.0,
+                paper,
+            );
+            painter.line_segment(
+                [Pos2::new(x0, y0 + h * 0.55), Pos2::new(x1, y0 + h * 0.55)],
+                Stroke::new(1.0_f32, ink),
+            );
+        }
+        "Storage" => {
+            // Door split down the middle.
+            painter.line_segment(
+                [Pos2::new(cx, y0), Pos2::new(cx, y1)],
+                Stroke::new(1.0_f32, ink),
+            );
+            painter.line_segment(
+                [Pos2::new(x0, cy), Pos2::new(x1, cy)],
+                Stroke::new(1.0_f32, ink),
+            );
+        }
+        "Kitchen" => {
+            // Hob rings.
+            for (fx, fy) in [(0.3, 0.3), (0.7, 0.3), (0.3, 0.7), (0.7, 0.7)] {
+                painter.circle_stroke(
+                    Pos2::new(x0 + w * fx, y0 + h * fy),
+                    (w.min(h)) * 0.11,
+                    Stroke::new(1.0_f32, ink),
+                );
+            }
+        }
+        "Bathroom" => {
+            // Basin/bowl oval.
+            painter.circle_stroke(
+                Pos2::new(cx, cy),
+                (w.min(h)) * 0.3,
+                Stroke::new(1.2_f32, ink),
+            );
+        }
+        "Lighting & decor" => {
+            // Inset border (rugs) reads fine for the whole group.
+            painter.rect_stroke(
+                fp.shrink(3.0),
+                0.0,
+                Stroke::new(1.0_f32, ink),
+                egui::StrokeKind::Inside,
+            );
+        }
+        _ => {
+            painter.line_segment(
+                [Pos2::new(x0, cy), Pos2::new(x1, cy)],
+                Stroke::new(1.0_f32, ink),
+            );
+        }
+    }
+}
+
+/// One starter-room card in the template gallery.
+fn template_card(ui: &mut egui::Ui, name: &str, blurb: &str, p: &Project) -> bool {
+    let mut clicked = false;
+    ui.vertical(|ui| {
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(216.0, 132.0), egui::Sense::click());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 4.0, Color32::from_rgb(0x08, 0x08, 0x08));
+        painter.rect_stroke(
+            rect,
+            4.0,
+            Stroke::new(1.0_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
+            egui::StrokeKind::Inside,
+        );
+        // Mini plan: the room outline with furniture footprints.
+        let room = &p.room;
+        let inner = rect.shrink(10.0);
+        let sc = (inner.width() / room.width_m as f32).min(inner.height() / room.depth_m as f32);
+        let ox = inner.left() + (inner.width() - room.width_m as f32 * sc) / 2.0;
+        let oy = inner.bottom() - (inner.height() - room.depth_m as f32 * sc) / 2.0;
+        let ts = |x: f64, y: f64| Pos2::new(ox + x as f32 * sc, oy - y as f32 * sc);
+        painter.rect_filled(
+            Rect::from_two_pos(ts(0.0, room.depth_m), ts(room.width_m, 0.0)),
+            0.0,
+            rgb(room.floor_rgb),
+        );
+        for it in &p.items {
+            let cs = it.corners();
+            let pts: Vec<Pos2> = cs.iter().map(|&(x, y)| ts(x, y)).collect();
+            painter.add(Shape::convex_polygon(pts, rgb(it.rgb), Stroke::NONE));
+        }
+        painter.rect_stroke(
+            Rect::from_two_pos(ts(0.0, room.depth_m), ts(room.width_m, 0.0)),
+            0.0,
+            Stroke::new(2.0_f32, Color32::from_rgb(230, 230, 230)),
+            egui::StrokeKind::Inside,
+        );
+        if resp.hovered() {
+            painter.rect_stroke(
+                rect,
+                4.0,
+                Stroke::new(2.0_f32, RED),
+                egui::StrokeKind::Inside,
+            );
+        }
+        if resp.clicked() {
+            clicked = true;
+        }
+        ui.strong(name);
+        ui.small(blurb);
+    });
+    clicked
 }
