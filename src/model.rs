@@ -641,6 +641,16 @@ impl PlacedItem {
         self.x_m = x;
         self.y_m = y;
     }
+    /// Axis-aligned bounding box of the (possibly rotated) item:
+    /// (min_x, min_y, max_x, max_y) in room coordinates.
+    pub fn aabb(&self) -> (f64, f64, f64, f64) {
+        let cs = self.corners();
+        let min_x = cs.iter().map(|c| c.0).fold(f64::INFINITY, f64::min);
+        let max_x = cs.iter().map(|c| c.0).fold(f64::NEG_INFINITY, f64::max);
+        let min_y = cs.iter().map(|c| c.1).fold(f64::INFINITY, f64::min);
+        let max_y = cs.iter().map(|c| c.1).fold(f64::NEG_INFINITY, f64::max);
+        (min_x, min_y, max_x, max_y)
+    }
     /// Clear space between this item's (rotated) bounding box and
     /// each side of the room, as (west, east, south, north) in metres,
     /// never negative. Measured to the room's bounding rectangle, so
