@@ -5,6 +5,25 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-23
 
+### Walkthrough: a real perspective camera in the library (v0.9.0)
+
+- **Decision:** The walkthrough gets its own module (`src/walk.rs`)
+  rather than stretching the orbit projector: a compass-heading
+  `Walker`, a true-perspective transform with pitch, Sutherland–
+  Hodgman clipping against a near plane, and a painter's-order
+  face list mirroring the orbit scene (floor pattern, ceiling,
+  walls, boxes, glass). Movement is axis-separated with a body
+  radius, probing the outline polygon and inflated furniture boxes;
+  flat items (≤ 5 cm) are walkable. The GUI only forwards keys and
+  paints.
+- **Why:** The orbit camera is a weak-perspective toy that cannot
+  stand inside a room; near-plane clipping is the difference
+  between a walkthrough and a mess of smeared polygons at every
+  wall. Keeping it in the library keeps it testable, like the rest.
+- **Consequences:** Walk snapshots aren't offered yet (the orbit
+  snapshot is the shareable picture). Eye height is fixed at 1.6 m
+  for now.
+
 ### Lighting scenes are global moods (v0.8.0)
 
 - **Decision:** `Scene` (Day/Evening/Night) lives in the library
