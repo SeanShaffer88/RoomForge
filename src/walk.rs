@@ -6,7 +6,7 @@
 
 use crate::geometry::{point_in_polygon, rect_cells};
 use crate::model::{OpeningKind, Project};
-use crate::view3d::{box_corners, box_faces, shade_scene, Scene};
+use crate::view3d::{box_corners, box_faces, shade_scene, shadow_quad, skirting_quad, Scene};
 
 /// Where the visitor stands, and where they are looking.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -204,22 +204,23 @@ pub fn walk_layers(
     let origin = (width / 2.0, height / 2.0);
     let mut layers: Vec<WalkLayer> = Vec::new();
 
-    let push_poly = |pts3: &[(f64, f64, f64)], color: [u8; 3], layers: &mut Vec<WalkLayer>| {
-        let cam: Vec<(f64, f64, f64)> = pts3.iter().map(|&pt| to_camera(w, pt)).collect();
-        let clipped = clip_near(&cam);
-        if clipped.len() < 3 {
-            return;
-        }
-        let depth = clipped.iter().map(|c| c.2).sum::<f64>() / clipped.len() as f64;
-        let pts = clipped
-            .iter()
-            .map(|&c| project_fp(c, focal, origin))
-            .collect();
-        layers.push(WalkLayer {
-            depth,
-            cmd: WalkCmd::Fill { pts, color },
-        });
-    };
+    let push_poly =
+        |pts3: &[(f64, f64, f64)], color: [u8; 3], bias: f64, layers: &mut Vec<WalkLayer>| {
+            let cam: Vec<(f64, f64, f64)> = pts3.iter().map(|&pt| to_camera(w, pt)).collect();
+            let clipped = clip_near(&cam);
+            if clipped.len() < 3 {
+                return;
+            }
+            let depth = clipped.iter().map(|c| c.2).sum::<f64>() / clipped.len() as f64 - bias;
+            let pts = clipped
+                .iter()
+                .map(|&c| project_fp(c, focal, origin))
+                .collect();
+            layers.push(WalkLayer {
+                depth,
+                cmd: WalkCmd::Fill { pts, color },
+            });
+        };
 
     let outline = room.outline_or_rect();
     let cells = rect_cells(&outline);
@@ -227,6 +228,7 @@ pub fn walk_layers(
         push_poly(
             &[(x1, y1, 0.0), (x2, y1, 0.0), (x2, y2, 0.0), (x1, y2, 0.0)],
             shade_scene(room.floor_rgb, 0.9, scene),
+            0.0,
             &mut layers,
         );
     }
@@ -256,6 +258,7 @@ pub fn walk_layers(
             (0.0, room.depth_m, room.height_m),
         ],
         shade_scene(room.wall_rgb, 0.55, scene),
+        0.0,
         &mut layers,
     );
     for i in 0..outline.len() {
@@ -282,8 +285,31 @@ pub fn walk_layers(
                 (a.0, a.1, room.height_m),
             ],
             shade_scene(room.wall_rgb, bright, scene),
+            0.0,
             &mut layers,
         );
+    }
+    // Skirting boards along every wall base.
+    for i in 0..outline.len() {
+        let a = outline[i];
+        let b = outline[(i + 1) % outline.len()];
+        push_poly(
+            &skirting_quad(a, b),
+            shade_scene(room.wall_rgb, 1.18, scene),
+            0.0,
+            &mut layers,
+        );
+    }
+    // Soft shadows under the furniture.
+    for it in &p.items {
+        if let Some(q) = shadow_quad(it) {
+            push_poly(
+                &q,
+                shade_scene(room.floor_rgb, 0.55, scene),
+                0.04,
+                &mut layers,
+            );
+        }
     }
     for it in &p.items {
         let corners = box_corners(it);
@@ -294,7 +320,7 @@ pub fn walk_layers(
                 corners[idx[2]],
                 corners[idx[3]],
             ];
-            push_poly(&quad, shade_scene(it.rgb, bright, scene), &mut layers);
+            push_poly(&quad, shade_scene(it.rgb, bright, scene), 0.0, &mut layers);
         }
     }
     // Window glass.
@@ -303,7 +329,7 @@ pub fn walk_layers(
             continue;
         }
         let quad = crate::view3d::wall_opening_quad(p, o);
-        push_poly(&quad, scene.glass(), &mut layers);
+        push_poly(&quad, scene.glass(), 0.0, &mut layers);
     }
 
     layers.sort_by(|a, b| {
