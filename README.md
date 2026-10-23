@@ -63,14 +63,23 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 
 ## Screenshots
 
-Screenshots are taken from real runs on a Windows machine — never placeholders or stock images — so this section fills in as captures are supplied. The exact capture list (window size, theme, and what each shot must show) is in [docs/screenshots/CAPTURE.md](docs/screenshots/CAPTURE.md).
+All screenshots are real runs of RoomForge v0.6.0 on Windows — never placeholders or stock images. The capture list is in [docs/screenshots/CAPTURE.md](docs/screenshots/CAPTURE.md).
 
-| # | File | What it will show | Status |
-| --- | --- | --- | --- |
-| 1 | `docs/screenshots/01-2d-plan.png` | Main window, 2D plan with furniture, catalog and measurements visible | To be captured |
-| 2 | `docs/screenshots/02-3d-view.png` | The same room in the 3D view | To be captured |
-| 3 | `docs/screenshots/03-item-list.png` | The item list view for the same room | To be captured |
-| 4 | `docs/screenshots/04-room-setup.png` | Room setup panel: dimensions and doors/windows/services controls | To be captured |
+**The 2D plan** — walnut plank flooring, furniture placed, the room panel showing shape, flooring and paint controls:
+
+![RoomForge 2D plan view](docs/screenshots/01-2d-plan.png)
+
+**The 3D view** of the same room:
+
+![RoomForge 3D view](docs/screenshots/02-3d-view.png)
+
+**The item list** — everything placed, the doors/windows/services schedule, and the quantities-only materials list:
+
+![RoomForge item list](docs/screenshots/03-item-list.png)
+
+**A PNG snapshot** — this picture was rendered by RoomForge itself (3D view → "Save PNG snapshot"), not captured from the screen:
+
+![A 3D snapshot rendered by RoomForge](docs/screenshots/04-snapshot.png)
 
 ## System requirements
 
@@ -86,7 +95,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.6.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.6.1-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -179,7 +188,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-38 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
+39 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
 
 ```sh
 cargo test --locked
