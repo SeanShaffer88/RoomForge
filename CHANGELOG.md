@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-23
+
+### Added
+
+- **An icon of its own**: a top-down floor plan with a red sofa and
+  a door swing, in the black/red family colours. It's embedded in
+  the .exe file itself (Explorer, taskbar, shortcuts) and used as
+  the window icon. Sources live in `assets/` (`icon.png`, `icon.ico`).
+- **A banner for the README** in the same style (`docs/banner.png`).
+
 ## [0.7.0] - 2026-10-23
 
 A usability release: the same RoomForge, easier to learn and to use,
