@@ -5,6 +5,23 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-23
 
+### The v1.0 feel pack: polish inside the standing scope (v1.0.0)
+
+- **Decision:** SEAN asked for the feel of the IKEA online planner.
+  Built: drag-from-catalog, magnetic alignment guides (a pure
+  `geometry::align_snap`), skirting boards + blob shadows shared
+  by all three render paths, catalog glyph cards, a template
+  gallery, and walk-view snapshots. NOT built, per SEAN's standing
+  2026-10-22 exclusions: real manufacturer products/photos, prices
+  or cart totals, product configurators, photo/scan capture.
+- **Why:** The remaining gap to the online tools was interaction
+  finish, not capability — and all of it was achievable with the
+  generic catalog and the no-prices rule intact.
+- **Consequences:** Alignment snapping applies on top of (and per
+  axis, ahead of) the 5 cm grid snap. Shadows are darkened-floor
+  footprints, not shadow mapping — consistent with the flat-shaded
+  renderer and honest in the docs.
+
 ### Walkthrough: a real perspective camera in the library (v0.9.0)
 
 - **Decision:** The walkthrough gets its own module (`src/walk.rs`)
