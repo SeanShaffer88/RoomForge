@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-23
+
+### Added
+
+- **Walk through the room**: a first-person mode inside the 3D
+  view. Stand where a person would stand (eye height 1.6 m) and
+  walk the floor with W A S D or the arrow keys; Q/E or dragging
+  turns your head, Shift hurries, Esc steps back out. Movement has
+  real collisions — you slide along walls and furniture (flat rugs
+  can be walked over), so the walk is an honest test of walkways
+  and clearances. Lighting scenes apply in the walk too. The maths
+  (true-perspective camera, near-plane clipping, collision) lives
+  in the library with its own tests, like everything else here.
+
 ## [0.8.0] - 2026-10-23
 
 ### Added
