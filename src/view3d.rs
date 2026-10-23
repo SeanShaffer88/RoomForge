@@ -118,6 +118,39 @@ pub fn box_faces() -> [([usize; 4], f64); 6] {
     ]
 }
 
+/// The skirting-board quad for one outline edge: a 9 cm strip
+/// standing just inside the wall line (inset 1.2 cm so it reads as
+/// a separate board against the wall).
+pub fn skirting_quad(a: (f64, f64), b: (f64, f64)) -> [(f64, f64, f64); 4] {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).sqrt().max(1e-9);
+    // Inward (left of travel for our CCW outlines), 1.2 cm in.
+    let (nx, ny) = (-dy / len * 0.012, dx / len * 0.012);
+    let (ax, ay) = (a.0 + nx, a.1 + ny);
+    let (bx, by) = (b.0 + nx, b.1 + ny);
+    [(ax, ay, 0.0), (bx, by, 0.0), (bx, by, 0.09), (ax, ay, 0.09)]
+}
+
+/// A soft-shadow footprint for an item: its footprint grown by
+/// 5 cm on every side, lying on the floor. Flat items (rugs) get
+/// no shadow — they ARE the floor decoration.
+pub fn shadow_quad(it: &crate::model::PlacedItem) -> Option<[(f64, f64, f64); 4]> {
+    if it.height_m <= 0.05 {
+        return None;
+    }
+    let rot = it.rotation_deg.to_radians();
+    let (c, s) = (rot.cos(), rot.sin());
+    let hw = it.width_m / 2.0 + 0.05;
+    let hd = it.depth_m / 2.0 + 0.05;
+    let corner = |lx: f64, ly: f64| (it.x_m + lx * c - ly * s, it.y_m + lx * s + ly * c, 0.0);
+    Some([
+        corner(-hw, -hd),
+        corner(hw, -hd),
+        corner(hw, hd),
+        corner(-hw, hd),
+    ])
+}
+
 /// Shade an [r,g,b] colour by a brightness factor.
 pub fn shade(rgb: [u8; 3], factor: f64) -> [u8; 3] {
     rgb.map(|c| ((c as f64 * factor).clamp(0.0, 255.0)) as u8)
@@ -197,6 +230,34 @@ pub fn shade_scene(rgb: [u8; 3], factor: f64, scene: Scene) -> [u8; 3] {
 mod tests {
     use super::*;
     use crate::model::PlacedItem;
+
+    #[test]
+    fn skirting_and_shadow_quads() {
+        // South edge of a 5x4 room runs (0,0)->(5,0); skirting sits
+        // 1.2 cm inside (positive y) and 9 cm tall.
+        let q = skirting_quad((0.0, 0.0), (5.0, 0.0));
+        assert!((q[0].1 - 0.012).abs() < 1e-9 && (q[2].2 - 0.09).abs() < 1e-9);
+        // North edge runs (5,4)->(0,4); inside is negative y.
+        let q2 = skirting_quad((5.0, 4.0), (0.0, 4.0));
+        assert!((q2[0].1 - (4.0 - 0.012)).abs() < 1e-9);
+        let mut it = PlacedItem {
+            id: 1,
+            catalog_id: "x".into(),
+            name: "Sofa".into(),
+            category: "Test".into(),
+            x_m: 2.0,
+            y_m: 2.0,
+            width_m: 2.0,
+            depth_m: 1.0,
+            height_m: 0.85,
+            rotation_deg: 0.0,
+            rgb: [1, 2, 3],
+        };
+        let sh = shadow_quad(&it).unwrap();
+        assert!((sh[0].0 - (2.0 - 1.05)).abs() < 1e-9 && (sh[2].1 - (2.0 + 0.55)).abs() < 1e-9);
+        it.height_m = 0.02;
+        assert!(shadow_quad(&it).is_none(), "rugs cast no shadow");
+    }
 
     #[test]
     fn day_scene_is_the_plain_shading() {
