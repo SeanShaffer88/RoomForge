@@ -86,7 +86,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.5.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.6.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -107,12 +107,12 @@ roomforge path\to\my-room.roomforge
 ## How to use RoomForge
 
 1. **Start.** RoomForge opens with a starter living room so you can experiment, or click **New** for an empty room. If a previous session ended unexpectedly, the autosave is recovered automatically and the status bar tells you.
-2. **Size the room.** In the right-hand **Room** panel, type the real width, depth, ceiling height and wall thickness (either unit system), and pick wall/floor colours.
+2. **Size the room.** In the right-hand **Room** panel, type the real width, depth, ceiling height and wall thickness (either unit system), and pick wall/floor colours. Choose a **flooring material** — oak or walnut planks, tiles, carpet, polished concrete — and its pattern appears in every view and export. Paint swatches give one-click wall colours.
 3. **Add doors, windows and services.** Still in the right panel: choose a wall, then add doors and windows; use the ＋ buttons for sockets, pipes, radiators, switches, TV/network points and thermostats. Click any of them on the plan to adjust its position and size, or delete it.
 4. **(Optional) Trace a plan.** Room panel → **Load plan image…**, then **Calibrate scale** and click two points a known distance apart. Trace walls by sizing the room and placing fittings over the image.
 5. **Furnish.** In the left catalog, search or browse, click a piece, then click in the room to drop it. Drag pieces to move them; use the right panel to fine-tune size, position, rotation and colour. Watch the bottom bar — it calls out overlaps and blocked doors as you work.
 6. **Annotate.** **📝 Add note**, click in the room, and type. Click a note's marker to edit or delete it.
-7. **Check it in 3D.** Press **2** (or click **3D view**), drag to orbit. Press **3** for the item list.
+7. **Check it in 3D.** Press **2** (or click **3D view**), drag to orbit. **Save PNG snapshot** renders the standard 3D view to a picture file you can send to anyone — no screenshot needed. Press **3** for the item list.
 8. **Save and share.** **Ctrl+S** saves a `.roomforge` file — send that file to anyone; it opens in their copy, tracing image included.
 9. **Print and export.** Use the Export row: **Plan (SVG)** for a to-scale drawing, **Plan 1:50 / 1:100** for exact-scale printing, **Item list (CSV)** for a spreadsheet, **Print sheet (HTML)** for a tidy printable page.
 
@@ -167,6 +167,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 | `src/catalog.rs` | The built-in furniture catalog (original, generic items) |
 | `src/geometry.rs` | 2D geometry: overlap tests (including door-swing areas), snapping |
 | `src/view3d.rs` | The 3D projection maths behind the 3D view |
+| `src/render.rs` | The offline software renderer behind PNG snapshots of the 3D view |
 | `src/export.rs` | SVG plan (incl. true-scale variants), CSV list, printable HTML |
 | `src/units.rs` | Metric/imperial formatting and parsing of typed lengths |
 | `src/io.rs` | Saving/loading plans, atomic writes, the autosave location |
@@ -178,7 +179,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-34 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, and the materials quantities. Run them with:
+38 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
 
 ```sh
 cargo test --locked
@@ -214,7 +215,7 @@ There are **no prices anywhere in RoomForge** — no item prices, no totals, and
 
 ## Roadmap
 
-Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). Already delivered from that list: L-shaped rooms (corner notches, format v2), the custom-object builder, and the quantities-only materials list. Still ahead: custom textures and materials → lighting and offline rendered stills → a first-person walkthrough → multi-room plans → import of GLB/OBJ models. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
+Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). Already delivered from that list: L-shaped rooms (corner notches, format v2), the custom-object builder, the quantities-only materials list, procedural flooring materials, and offline PNG snapshots of the 3D view. Still ahead: lighting (day/evening scenes) → a first-person walkthrough → multi-room plans → import of GLB/OBJ models → user image textures. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
 
 ## Contributing
 
