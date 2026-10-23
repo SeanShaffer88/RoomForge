@@ -95,7 +95,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.6.1-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.7.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -127,12 +127,15 @@ roomforge path\to\my-room.roomforge
 
 ## Settings, shortcuts and file formats
 
-**In-app settings** (top bar and Room panel): Units (Metric/Imperial), Snap 5 cm on/off, tracing-image opacity, wall/floor colours. RoomForge has no settings file and no accounts — everything else lives inside each plan file.
+**In-app settings** (top bar and Room panel): Units (Metric/Imperial), Snap 5 cm on/off, tracing-image opacity, wall/floor colours, and text size (**A− / A+** at the right of the Export row — everything in the window scales, for tired eyes or small screens). RoomForge has no settings file and no accounts — everything else lives inside each plan file.
+
+**Help, built in.** Press **F1** or click **Help** (right of the Export row) for a plain-language guide: the four steps to your first room, what the jargon words mean, every shortcut, and the things worth knowing (offline, autosave, no prices by design). Selecting a piece of furniture also shows the **space around it** — the gap to each wall — in the right-hand panel.
 
 **Keyboard shortcuts**
 
 | Keys | Action |
 | --- | --- |
+| `F1` | Open the built-in Help guide |
 | `1` / `2` / `3` | 2D plan / 3D view / Item list |
 | Arrow keys | Nudge the selected item (5 cm; **Shift** = 25 cm) |
 | `R` / `Shift+R` | Rotate the selected item by 15° / 90° |
@@ -188,7 +191,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-39 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
+40 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
 
 ```sh
 cargo test --locked
