@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-23
+
+### Added
+
+- **Flooring materials.** Eight procedural finishes — oak, walnut and
+  grey-laminate planks (with staggered joints), ceramic and slate
+  tiles, beige carpet, polished concrete (with expansion joints), or
+  a solid colour of your own. The pattern is drawn from the model, so
+  it follows L-shaped outlines and appears consistently in the 2D
+  plan, the 3D view, SVG exports and print sheets. No texture files
+  are needed, so plans stay self-contained.
+- **Paint and floor swatches** in the Room panel for one-click wall
+  and floor colours, alongside the full colour pickers.
+- **"Save PNG snapshot"** in the 3D view: renders the standard 3D
+  view to a 1280×800 PNG picture you can share — rendered by an
+  offline software rasterizer, so it works anywhere and matches what
+  the plan describes (flat-shaded, not photorealistic).
+
 ## [0.5.0] - 2026-10-22
 
 ### Added
