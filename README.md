@@ -43,10 +43,10 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 
 ### Furnish it in 2D
 
-- A built-in catalog of **49 generic pieces** in 8 groups (Seating, Tables, Beds, Storage, Kitchen, Bathroom, Lighting & decor, Other), each with real-world dimensions. Search the catalog, click a piece, click in the room to place it; hold **Shift** to place several.
+- A built-in catalog of **49 generic pieces** in 8 groups (Seating, Tables, Beds, Storage, Kitchen, Bathroom, Lighting & decor, Other), each with real-world dimensions. The catalog shows each piece as a little top-down drawing of itself. Search it, then click a piece and click in the room to place it — or **drag the piece straight in**. Hold **Shift** to place several.
 - **Build your own pieces**: the catalog panel's "Your items" section lets you define furniture with your own name and exact size — an aquarium stand, a dog crate, that odd-shaped desk — and place it like any catalog piece. Your definitions are saved inside the plan file.
 - **Templates**: the New menu offers furnished Living room, Bedroom and Home office starting points, plus an empty room.
-- Drag to move, rotate in 15° steps (**R**) or 90° steps (**Shift+R**), resize, recolour, duplicate and delete. Optional **5 cm snapping** while dragging.
+- Drag to move, rotate in 15° steps (**R**) or 90° steps (**Shift+R**), resize, recolour, duplicate and delete. Optional **5 cm snapping** while dragging — plus **magnetic alignment**: pieces snap to each other's edges and centres and to the room's centre lines, with red guide lines and a live readout of the gap to each wall while you drag.
 - **Undo and redo** (100 steps) for everything, and an **autosave every few seconds** — if the program closes unexpectedly, your last session is recovered on the next start.
 
 ### Trace over a real plan
@@ -57,7 +57,7 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 
 ### See it in 3D, take it with you
 
-- One click switches to a **3D doll's-house view** of the same room: drag to orbit, with sliders for yaw and pitch.
+- One click switches to a **3D doll's-house view** of the same room: drag to orbit, with sliders for turn and tilt. Skirting boards and soft shadows under the furniture make it read as a real room, and **New → Template gallery** offers the starter rooms as picture cards.
 - The **Item list view** shows everything placed, grouped and counted, with sizes — and the doors/windows/services schedule and any warnings.
 - A **materials list with quantities only**: floor and ceiling area, wall area before and after subtracting doors and windows, skirting length and perimeter — enough to buy paint and flooring by. (Quantities, never costs: see the no-prices rule below.)
 - Pin **text notes** to the plan (numbered markers); they appear in the list view and in exports.
@@ -97,7 +97,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v0.9.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v1.0.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -121,9 +121,9 @@ roomforge path\to\my-room.roomforge
 2. **Size the room.** In the right-hand **Room** panel, type the real width, depth, ceiling height and wall thickness (either unit system), and pick wall/floor colours. Choose a **flooring material** — oak or walnut planks, tiles, carpet, polished concrete — and its pattern appears in every view and export. Paint swatches give one-click wall colours.
 3. **Add doors, windows and services.** Still in the right panel: choose a wall, then add doors and windows; use the ＋ buttons for sockets, pipes, radiators, switches, TV/network points and thermostats. Click any of them on the plan to adjust its position and size, or delete it.
 4. **(Optional) Trace a plan.** Room panel → **Load plan image…**, then **Calibrate scale** and click two points a known distance apart. Trace walls by sizing the room and placing fittings over the image.
-5. **Furnish.** In the left catalog, search or browse, click a piece, then click in the room to drop it. Drag pieces to move them; use the right panel to fine-tune size, position, rotation and colour. Watch the bottom bar — it calls out overlaps and blocked doors as you work.
+5. **Furnish.** In the left catalog, search or browse, click a piece then click in the room to drop it — or drag pieces straight in from the list. Drag placed pieces to move them (they align magnetically, with guide lines and live wall gaps); use the right panel to fine-tune size, position, rotation and colour. Watch the bottom bar — it calls out overlaps and blocked doors as you work.
 6. **Annotate.** **📝 Add note**, click in the room, and type. Click a note's marker to edit or delete it.
-7. **Check it in 3D.** Press **2** (or click **3D view**), drag to orbit. Try the **Lighting** buttons — Day, Evening and Night change the mood of the room (and of snapshots). Then **Walk through the room** steps inside it: W A S D (or the arrow keys) move you, Q/E or dragging turns your head, Shift hurries, Esc steps back out — with proper collisions, so you get a real feel for the space between the furniture. **Save PNG snapshot** renders the 3D view to a picture file you can send to anyone — no screenshot needed. Press **3** for the item list.
+7. **Check it in 3D.** Press **2** (or click **3D view**), drag to orbit. Try the **Lighting** buttons — Day, Evening and Night change the mood of the room (and of snapshots). Then **Walk through the room** steps inside it: W A S D (or the arrow keys) move you, Q/E or dragging turns your head, Shift hurries, Esc steps back out — with proper collisions, so you get a real feel for the space between the furniture. **Save PNG snapshot** renders the 3D view to a picture file you can send to anyone — no screenshot needed, and the walk has its own **Save PNG of this view** for a picture from where you're standing. Press **3** for the item list.
 8. **Save and share.** **Ctrl+S** saves a `.roomforge` file — send that file to anyone; it opens in their copy, tracing image included.
 9. **Print and export.** Use the Export row: **Plan (SVG)** for a to-scale drawing, **Plan 1:50 / 1:100** for exact-scale printing, **Item list (CSV)** for a spreadsheet, **Print sheet (HTML)** for a tidy printable page.
 
@@ -193,7 +193,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-47 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
+50 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
 
 ```sh
 cargo test --locked
@@ -227,7 +227,6 @@ There are **no prices anywhere in RoomForge** — no item prices, no totals, and
 - The tracing underlay is **aligned, not rotated**: it assumes your scan/photo is roughly square to the room; calibration fixes scale, not skew.
 - Furniture is drawn as simple coloured shapes/boxes — this is a planning tool, not a photorealistic renderer (offline rendered views are on the roadmap).
 - **Lighting scenes are moods, not real lighting**: Day/Evening/Night change the whole scene's brightness, tint and window colour at once; there are no individual lamps, shadows or light switches yet.
-- **The walkthrough can't be snapshotted yet** — PNG snapshots render the orbit view; the walk is for live exploration.
 
 ## Roadmap
 
