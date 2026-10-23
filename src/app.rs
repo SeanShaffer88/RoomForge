@@ -281,12 +281,12 @@ fn bedroom_project() -> Project {
     p.room.width_m = 4.2;
     p.room.depth_m = 3.6;
     tpl_door_window(&mut p);
-    tpl_place(&mut p, "bed-double", 1.05, 2.5, 0.0);
-    tpl_place(&mut p, "bedside-table", 2.15, 3.25, 0.0);
+    tpl_place(&mut p, "bed-double", 1.35, 2.5, 0.0);
+    tpl_place(&mut p, "bedside-table", 2.45, 3.25, 0.0);
     tpl_place(&mut p, "wardrobe-2", 3.5, 3.3, 0.0);
     tpl_place(&mut p, "chest-4", 3.85, 1.6, 270.0);
     tpl_place(&mut p, "rug-small", 1.6, 1.4, 0.0);
-    tpl_place(&mut p, "floor-lamp", 0.35, 3.3, 0.0);
+    tpl_place(&mut p, "floor-lamp", 0.32, 3.3, 0.0);
     p
 }
 
@@ -893,7 +893,7 @@ impl App {
                 ui.label("Export:");
                 if ui.button("Plan (SVG)").on_hover_text("Save a to-scale drawing of the plan").clicked() {
                     if let Some(p) = save_dialog("SVG drawing", "svg", "plan") {
-                        let svg = roomforge::export::plan_svg(&self.project, 110.0);
+                        let svg = roomforge::export::plan_svg(&self.project, 110.0, self.imperial);
                         self.export_to(p, &svg, "Plan");
                     }
                 }
@@ -905,20 +905,20 @@ impl App {
                 }
                 if ui.button("Print sheet (HTML)").on_hover_text("Save a printable page with the plan and item list — open it in a browser and print, or print to PDF").clicked() {
                     if let Some(p) = save_dialog("HTML print sheet", "html", "plan-print") {
-                        let html = roomforge::export::print_html(&self.project);
+                        let html = roomforge::export::print_html(&self.project, self.imperial);
                         self.export_to(p, &html, "Print sheet");
                     }
                 }
                 ui.separator();
                 if ui.button("Plan 1:50").on_hover_text("Save the plan as an SVG sized for true 1:50 printing — print it at 100%").clicked() {
                     if let Some(p) = save_dialog("SVG drawing", "svg", "plan-1-50") {
-                        let svg = roomforge::export::plan_svg_scaled(&self.project, 50.0);
+                        let svg = roomforge::export::plan_svg_scaled(&self.project, 50.0, self.imperial);
                         self.export_to(p, &svg, "Plan 1:50");
                     }
                 }
                 if ui.button("Plan 1:100").on_hover_text("Save the plan as an SVG sized for true 1:100 printing — print it at 100%").clicked() {
                     if let Some(p) = save_dialog("SVG drawing", "svg", "plan-1-100") {
-                        let svg = roomforge::export::plan_svg_scaled(&self.project, 100.0);
+                        let svg = roomforge::export::plan_svg_scaled(&self.project, 100.0, self.imperial);
                         self.export_to(p, &svg, "Plan 1:100");
                     }
                 }
@@ -2751,19 +2751,19 @@ impl App {
             ui.strong("Doors, windows and services");
             for o in &self.project.openings {
                 ui.label(format!(
-                    "{} — {} wall, {:.2} m from the corner, {:.2} m wide",
+                    "{} — {} wall, {} from the corner, {} wide",
                     o.kind.label(),
                     o.wall.label(),
-                    o.offset_m,
-                    o.width_m
+                    fmt_len(o.offset_m, self.imperial),
+                    fmt_len(o.width_m, self.imperial)
                 ));
             }
             for s in &self.project.services {
                 ui.label(format!(
-                    "{} — {} wall, {:.2} m from the corner",
+                    "{} — {} wall, {} from the corner",
                     s.kind.label(),
                     s.wall.label(),
-                    s.offset_m
+                    fmt_len(s.offset_m, self.imperial)
                 ));
             }
             if !self.project.annotations.is_empty() {
@@ -2982,4 +2982,25 @@ fn template_card(ui: &mut egui::Ui, name: &str, blurb: &str, p: &Project) -> boo
         ui.small(blurb);
     });
     clicked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every starter template must load clean: no overlap or
+    /// blocked-door warnings out of the box. (A v0.6.0-era starter
+    /// placed the floor lamp 2.5 cm into the sofa; the fix moved it,
+    /// and this test keeps any future template edit honest.)
+    #[test]
+    fn starter_templates_have_no_warnings() {
+        for (name, p) in [
+            ("living", starter_project()),
+            ("bedroom", bedroom_project()),
+            ("office", office_project()),
+        ] {
+            let w = p.warnings();
+            assert!(w.is_empty(), "{name} template warns: {w:?}");
+        }
+    }
 }
