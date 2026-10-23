@@ -123,10 +123,109 @@ pub fn shade(rgb: [u8; 3], factor: f64) -> [u8; 3] {
     rgb.map(|c| ((c as f64 * factor).clamp(0.0, 255.0)) as u8)
 }
 
+/// A lighting mood for the 3D view and snapshots. Scenes are global
+/// ambience — an overall brightness, a colour tint, a backdrop and a
+/// window-glass colour — not per-lamp lighting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scene {
+    #[default]
+    Day,
+    Evening,
+    Night,
+}
+
+impl Scene {
+    pub fn label(self) -> &'static str {
+        match self {
+            Scene::Day => "Day",
+            Scene::Evening => "Evening",
+            Scene::Night => "Night",
+        }
+    }
+    /// Overall brightness multiplier.
+    pub fn ambient(self) -> f64 {
+        match self {
+            Scene::Day => 1.0,
+            Scene::Evening => 0.8,
+            Scene::Night => 0.48,
+        }
+    }
+    /// Per-channel colour tint (warm at evening, cool at night).
+    pub fn tint(self) -> (f64, f64, f64) {
+        match self {
+            Scene::Day => (1.0, 1.0, 1.0),
+            Scene::Evening => (1.06, 0.93, 0.78),
+            Scene::Night => (0.8, 0.9, 1.12),
+        }
+    }
+    /// Backdrop colour behind the room.
+    pub fn background(self) -> [u8; 3] {
+        match self {
+            Scene::Day => [8, 8, 8],
+            Scene::Evening => [14, 9, 7],
+            Scene::Night => [3, 5, 12],
+        }
+    }
+    /// Window glass colour: sky by day, sunset in the evening,
+    /// moonlight at night.
+    pub fn glass(self) -> [u8; 3] {
+        match self {
+            Scene::Day => [120, 190, 240],
+            Scene::Evening => [255, 176, 102],
+            Scene::Night => [130, 165, 235],
+        }
+    }
+    /// Glass opacity for the live view (the snapshot paints it solid).
+    pub fn glass_alpha(self) -> u8 {
+        match self {
+            Scene::Day => 200,
+            Scene::Evening => 185,
+            Scene::Night => 140,
+        }
+    }
+}
+
+/// Shade a colour by a face factor and then by the scene's light.
+pub fn shade_scene(rgb: [u8; 3], factor: f64, scene: Scene) -> [u8; 3] {
+    let (tr, tg, tb) = scene.tint();
+    let tints = [tr, tg, tb];
+    let f = factor * scene.ambient();
+    std::array::from_fn(|i| ((rgb[i] as f64 * f * tints[i]).clamp(0.0, 255.0)) as u8)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::PlacedItem;
+
+    #[test]
+    fn day_scene_is_the_plain_shading() {
+        assert_eq!(
+            shade_scene([100, 200, 50], 0.5, Scene::Day),
+            shade([100, 200, 50], 0.5)
+        );
+        assert_eq!(
+            shade_scene([216, 210, 200], 0.9, Scene::Day),
+            shade([216, 210, 200], 0.9)
+        );
+    }
+
+    #[test]
+    fn evening_is_warm_and_night_is_dark_and_cool() {
+        let grey = [200, 200, 200];
+        let ev = shade_scene(grey, 1.0, Scene::Evening);
+        assert!(ev[0] > ev[2], "evening should lean warm: {ev:?}");
+        let ni = shade_scene(grey, 1.0, Scene::Night);
+        assert!(ni[2] > ni[0], "night should lean cool: {ni:?}");
+        assert!(ni[0] < ev[0], "night darker than evening");
+        let day = shade_scene(grey, 1.0, Scene::Day);
+        assert!(
+            day[0] > ev[0] && ev[0] > ni[0],
+            "brightness order day > evening > night"
+        );
+        assert_ne!(Scene::Day.background(), Scene::Night.background());
+        assert_ne!(Scene::Day.glass(), Scene::Evening.glass());
+    }
 
     #[test]
     fn centre_projects_to_origin_at_floor_level() {
