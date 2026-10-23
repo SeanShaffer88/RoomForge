@@ -57,6 +57,7 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 
 ### See it in 3D, take it with you
 
+- **Multi-room plans**: a plan can hold a whole home. The Rooms strip switches between rooms; each keeps its own size, flooring, walls and furniture, doors can be labelled with the room they lead to, and the item list and print sheet cover every room with whole-home totals.
 - One click switches to a **3D doll's-house view** of the same room: drag to orbit, with sliders for turn and tilt. Skirting boards and soft shadows under the furniture make it read as a real room, and **New → Template gallery** offers the starter rooms as picture cards.
 - The **Item list view** shows everything placed, grouped and counted, with sizes — and the doors/windows/services schedule and any warnings.
 - A **materials list with quantities only**: floor and ceiling area, wall area before and after subtracting doors and windows, skirting length and perimeter — enough to buy paint and flooring by. (Quantities, never costs: see the no-prices rule below.)
@@ -97,7 +98,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v1.0.1-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v1.1.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -193,7 +194,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-52 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
+56 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
 
 ```sh
 cargo test --locked
@@ -230,7 +231,7 @@ There are **no prices anywhere in RoomForge** — no item prices, no totals, and
 
 ## Roadmap
 
-Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). Already delivered from that list: L-shaped rooms (corner notches, format v2), the custom-object builder, the quantities-only materials list, procedural flooring materials, and offline PNG snapshots of the 3D view. Already delivered from that list also includes lighting scenes (Day / Evening / Night) for the 3D view and snapshots, and a first-person walkthrough. Still ahead: multi-room plans → import of GLB/OBJ models → user image textures. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
+Documented in [docs/FEATURE_ADOPTION.md](docs/FEATURE_ADOPTION.md) and [docs/PRODUCT_AND_ENGINEERING_PLAN.md](docs/PRODUCT_AND_ENGINEERING_PLAN.md). Already delivered from that list: L-shaped rooms (corner notches, format v2), the custom-object builder, the quantities-only materials list, procedural flooring materials, and offline PNG snapshots of the 3D view. Already delivered from that list also includes lighting scenes (Day / Evening / Night) for the 3D view and snapshots, and a first-person walkthrough. Already delivered also includes multi-room plans (a plan can hold a whole home, with per-room design and whole-home lists). Still ahead: import of GLB/OBJ models → user image textures. Printed page tiling is scheduled with the print work. Features deliberately **not** planned: prices or cost estimators, product configurators, photo/LiDAR room scanning, and anything that needs an account or the cloud.
 
 ## Contributing
 
