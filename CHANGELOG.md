@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-23
+
+### Added
+
+- **Multi-room plans** (file format v3; older files open as
+  single-room plans): a plan can now hold a whole home. A Rooms
+  strip under the top bar switches rooms; "+ Add room" starts a
+  new room from any template; rooms can be duplicated and deleted
+  from the Room panel (the last room is always kept). Each room
+  keeps its own dimensions, flooring, walls, fittings, furniture,
+  notes and tracing image.
+- **Doors can say where they lead**: a door's editor gains a
+  "Leads to" picker naming another room; the label shows in the
+  item list and the print sheet ("Door — East wall … → Study").
+- **Whole-home reporting**: with several rooms, the item list
+  shows a section per room plus whole-home materials totals, the
+  print sheet prints every room with a totals page section, and
+  the status bar counts furniture across the plan.
+
 ## [1.0.1] - 2026-10-23
 
 ### Fixed
