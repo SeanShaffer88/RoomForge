@@ -8,7 +8,8 @@ use image::{Rgb, RgbImage};
 use crate::geometry::rect_cells;
 use crate::model::{OpeningKind, Project};
 use crate::view3d::{
-    box_corners, box_faces, project, shade_scene, wall_opening_quad, Camera, Scene,
+    box_corners, box_faces, project, shade_scene, shadow_quad, skirting_quad, wall_opening_quad,
+    Camera, Scene,
 };
 
 /// Projects a room-space point to (screen point, depth).
@@ -77,6 +78,23 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
         });
     }
 
+    // A quad pushed with an artificial depth bias, for flat floor
+    // dressing (shadows) that must paint over the floor + pattern.
+    fn push_biased(
+        layers: &mut Vec<Layered>,
+        pr: &Projector<'_>,
+        quad: &[(f64, f64, f64); 4],
+        color: [u8; 3],
+        bias: f64,
+    ) {
+        let mut tmp = Vec::new();
+        push_quad(&mut tmp, pr, quad, color);
+        for mut l in tmp {
+            l.depth -= bias;
+            layers.push(l);
+        }
+    }
+
     let outline = room.outline_or_rect();
     let cells = rect_cells(&outline);
     // Floor cells.
@@ -131,6 +149,29 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
             ],
             shade_scene(room.wall_rgb, bright, scene),
         );
+    }
+    // Skirting boards along every wall base.
+    for i in 0..outline.len() {
+        let a = outline[i];
+        let b = outline[(i + 1) % outline.len()];
+        push_quad(
+            &mut layers,
+            &pr,
+            &skirting_quad(a, b),
+            shade_scene(room.wall_rgb, 1.18, scene),
+        );
+    }
+    // Soft shadows under the furniture (over floor and pattern).
+    for it in &p.items {
+        if let Some(q) = shadow_quad(it) {
+            push_biased(
+                &mut layers,
+                &pr,
+                &q,
+                shade_scene(room.floor_rgb, 0.55, scene),
+                0.04,
+            );
+        }
     }
     // Furniture boxes.
     for it in &p.items {
@@ -232,6 +273,28 @@ fn draw_line(img: &mut RgbImage, a: (f64, f64), b: (f64, f64), color: [u8; 3]) {
     }
 }
 
+/// Render the first-person walk view to an image — the "photo from
+/// where you're standing" companion to the orbit snapshot.
+pub fn render_walk(
+    p: &Project,
+    w: &crate::walk::Walker,
+    scene: Scene,
+    width: u32,
+    height: u32,
+) -> RgbImage {
+    let mut img = RgbImage::from_pixel(width, height, Rgb(scene.background()));
+    if width == 0 || height == 0 {
+        return img;
+    }
+    for layer in crate::walk::walk_layers(p, w, scene, width as f64, height as f64) {
+        match layer.cmd {
+            crate::walk::WalkCmd::Fill { pts, color } => fill_polygon(&mut img, &pts, color),
+            crate::walk::WalkCmd::Line { a, b, color } => draw_line(&mut img, a, b, color),
+        }
+    }
+    img
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +337,21 @@ mod tests {
             mean(&night),
             mean(&day)
         );
+    }
+
+    #[test]
+    fn walk_render_shows_the_room_from_inside() {
+        let p = Project::default();
+        let w = crate::walk::Walker::start(&p);
+        let img = render_walk(&p, &w, Scene::Day, 320, 200);
+        // Standing inside, the room fills essentially the whole frame.
+        let non_bg = img
+            .pixels()
+            .filter(|px| px.0 != Scene::Day.background())
+            .count();
+        assert!(non_bg > 30_000, "only {non_bg} room pixels from inside");
+        let night = render_walk(&p, &w, Scene::Night, 320, 200);
+        assert!(night.as_raw() != img.as_raw());
     }
 
     #[test]
