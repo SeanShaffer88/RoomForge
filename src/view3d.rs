@@ -56,6 +56,43 @@ pub fn project(
     )
 }
 
+/// The 3D quad of a wall opening, slightly proud of the wall surface.
+pub fn wall_opening_quad(
+    p: &crate::model::Project,
+    o: &crate::model::Opening,
+) -> [(f64, f64, f64); 4] {
+    use crate::model::Wall;
+    let (w, d) = (p.room.width_m, p.room.depth_m);
+    let (z0, z1) = (o.sill_m, o.sill_m + o.height_m);
+    let e = 0.01;
+    match o.wall {
+        Wall::South => [
+            (o.offset_m, -e, z0),
+            (o.offset_m + o.width_m, -e, z0),
+            (o.offset_m + o.width_m, -e, z1),
+            (o.offset_m, -e, z1),
+        ],
+        Wall::North => [
+            (o.offset_m, d + e, z0),
+            (o.offset_m + o.width_m, d + e, z0),
+            (o.offset_m + o.width_m, d + e, z1),
+            (o.offset_m, d + e, z1),
+        ],
+        Wall::West => [
+            (-e, o.offset_m, z0),
+            (-e, o.offset_m + o.width_m, z0),
+            (-e, o.offset_m + o.width_m, z1),
+            (-e, o.offset_m, z1),
+        ],
+        Wall::East => [
+            (w + e, o.offset_m, z0),
+            (w + e, o.offset_m + o.width_m, z0),
+            (w + e, o.offset_m + o.width_m, z1),
+            (w + e, o.offset_m, z1),
+        ],
+    }
+}
+
 /// The eight 3D corners of a placed item (a box), in room space.
 pub fn box_corners(it: &crate::model::PlacedItem) -> [(f64, f64, f64); 8] {
     let plan = it.corners();
