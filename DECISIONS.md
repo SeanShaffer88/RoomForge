@@ -5,6 +5,24 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-23
 
+### Usability pass: plain language first (v0.7.0)
+
+- **Decision:** Treat learnability as a feature: a built-in Help
+  window (F1) written in plain language with a small glossary,
+  controls labelled by what they do ("Turn"/"Tilt", "Centre — from
+  left wall") rather than by technical terms, a "space around it"
+  clearance readout for the selected item, and A−/A+ text scaling.
+  Advanced capability stays (typed unit expressions, true-scale
+  exports, calibration) but is introduced as "pros" notes, never as
+  the first thing a beginner meets.
+- **Why:** SEAN's direction — the program must be accessible to
+  amateurs and professionals alike. The first on-machine run showed
+  the features all worked; the remaining gap was discoverability
+  and vocabulary.
+- **Consequences:** New UI text is held to the same standard: say
+  what a control does, pair every colour cue with words, and put a
+  one-line explanation wherever a term is unavoidable.
+
 ### Procedural materials and a software snapshot renderer
 
 - **Decision:** Floor finishes are procedural (base colour + pattern
