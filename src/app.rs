@@ -10,7 +10,7 @@ use roomforge::model::{
 };
 use roomforge::units::{fmt_area, fmt_len, parse_len};
 use roomforge::view3d::{
-    box_corners, box_faces, project as project3d, shade, wall_opening_quad, Camera,
+    box_corners, box_faces, project as project3d, shade_scene, wall_opening_quad, Camera, Scene,
 };
 use std::path::PathBuf;
 use std::time::Instant;
@@ -81,6 +81,7 @@ pub struct App {
     placing: Option<PlaceTemplate>,
     show_help: bool,
     text_scale: f32,
+    scene: Scene,
     // Room-shape (notch) form state.
     notch_h: f64,
     notch_v: f64,
@@ -323,6 +324,7 @@ impl App {
             placing: None,
             show_help: false,
             text_scale: 1.0,
+            scene: Scene::Day,
             notch_h: 1.5,
             notch_v: 1.2,
             custom_name: String::new(),
@@ -462,7 +464,8 @@ impl App {
                 .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-")
         );
         if let Some(path) = save_dialog("PNG image", "png", &name) {
-            let img = roomforge::render::render_snapshot(&self.project, 1280, 800);
+            let img =
+                roomforge::render::render_snapshot_scene(&self.project, 1280, 800, self.scene);
             match img.save(&path) {
                 Ok(()) => self.status = format!("3D snapshot written to {}", path.display()),
                 Err(e) => self.status = format!("Could not write {}: {e}", path.display()),
@@ -1737,7 +1740,7 @@ impl App {
         }
         // Flooring pattern (planks / tiles / joints), clipped to the
         // floor by construction — segments are generated per cell.
-        let pattern_col = rgb(shade(room.floor_rgb, 0.7));
+        let pattern_col = rgb(shade_scene(room.floor_rgb, 0.7, Scene::Day));
         for (a, b) in room.floor_material.pattern_segments(&floor_cells) {
             painter.line_segment(
                 [to_screen(a.0, a.1), to_screen(b.0, b.1)],
@@ -2188,6 +2191,21 @@ impl App {
         });
         ui.horizontal(|ui| {
             ui.label("Drag the view to orbit.");
+            ui.separator();
+            ui.label("Lighting");
+            for (s, tip) in [
+                (Scene::Day, "Bright daylight"),
+                (Scene::Evening, "Warm, softer evening light"),
+                (Scene::Night, "Dim night, with cool light through the windows"),
+            ] {
+                if ui
+                    .selectable_label(self.scene == s, s.label())
+                    .on_hover_text(tip)
+                    .clicked()
+                {
+                    self.scene = s;
+                }
+            }
             if ui
                 .button("Save PNG snapshot")
                 .on_hover_text("Render the standard 3D view to a PNG picture you can share (rendered offline, no screenshot needed)")
@@ -2233,9 +2251,12 @@ impl App {
                 (*x1, *y2, 0.0),
             ];
             let (pts, depth) = face_of(&corners, &pr);
-            draws.push((depth, Draw::Fill(pts, rgb(shade(room.floor_rgb, 0.9)))));
+            draws.push((
+                depth,
+                Draw::Fill(pts, rgb(shade_scene(room.floor_rgb, 0.9, self.scene))),
+            ));
         }
-        let pattern_col = rgb(shade(room.floor_rgb, 0.7));
+        let pattern_col = rgb(shade_scene(room.floor_rgb, 0.7, self.scene));
         for (a, b) in room.floor_material.pattern_segments(&floor_cells) {
             let (pa, da) = pr((a.0, a.1, 0.0));
             let (pb, db) = pr((b.0, b.1, 0.0));
@@ -2267,7 +2288,10 @@ impl App {
                 (a.0, a.1, room.height_m),
             ];
             let (pts, depth) = face_of(&quad, &pr);
-            draws.push((depth, Draw::Fill(pts, rgb(shade(room.wall_rgb, bright)))));
+            draws.push((
+                depth,
+                Draw::Fill(pts, rgb(shade_scene(room.wall_rgb, bright, self.scene))),
+            ));
         }
         // Furniture boxes
         for it in &self.project.items {
@@ -2283,7 +2307,7 @@ impl App {
                 let col = if self.selected_item == Some(it.id) && bright == 1.0 {
                     RED
                 } else {
-                    rgb(shade(it.rgb, bright))
+                    rgb(shade_scene(it.rgb, bright, self.scene))
                 };
                 draws.push((depth, Draw::Fill(pts, col)));
             }
@@ -2314,7 +2338,10 @@ impl App {
             let (pts, _) = face_of(&quad, &pr);
             painter.add(Shape::convex_polygon(
                 pts,
-                Color32::from_rgba_unmultiplied(120, 190, 240, 200),
+                {
+                    let g = self.scene.glass();
+                    Color32::from_rgba_unmultiplied(g[0], g[1], g[2], self.scene.glass_alpha())
+                },
                 Stroke::NONE,
             ));
         }
