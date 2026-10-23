@@ -54,6 +54,20 @@ pub fn plan_svg(p: &Project, px_per_m: f64) -> String {
         pts.join(" "),
         rgb_hex(p.room.floor_rgb)
     ));
+    // Flooring pattern lines (planks / tiles / joints), generated per
+    // floor cell so they never leave the outline.
+    let cells = crate::geometry::rect_cells(&outline);
+    let pattern_col = rgb_hex(crate::view3d::shade(p.room.floor_rgb, 0.7));
+    for (a, b) in p.room.floor_material.pattern_segments(&cells) {
+        s.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" stroke-width=\"0.7\"/>\n",
+            sx(a.0),
+            sy(a.1),
+            sx(b.0),
+            sy(b.1),
+            pattern_col
+        ));
+    }
     // Dimension lines: width below the south wall, depth left of the west wall.
     let dim_s = sy(0.0) + 30.0;
     s.push_str(&format!(
@@ -346,6 +360,24 @@ mod tests {
         assert!(csv.starts_with("Item,Category,"));
         assert!(csv.contains("3-seat sofa,Seating,2.20,0.95,0.85,1"));
         assert!(!csv.to_lowercase().contains("price"));
+    }
+
+    #[test]
+    fn svg_draws_floor_pattern_for_tiled_floors() {
+        let mut p = sample();
+        p.room.floor_material = crate::model::FloorMaterial::CeramicTile;
+        let svg = plan_svg(&p, 40.0);
+        assert!(
+            svg.contains("stroke-width=\"0.7\""),
+            "no pattern lines in svg"
+        );
+        let mut p2 = sample();
+        p2.room.floor_material = crate::model::FloorMaterial::BeigeCarpet;
+        let svg2 = plan_svg(&p2, 40.0);
+        assert!(
+            !svg2.contains("stroke-width=\"0.7\""),
+            "carpet should have no pattern lines"
+        );
     }
 
     #[test]
