@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-23
+
+### Fixed
+
+- **Imperial units are now honoured everywhere they're shown**: the
+  item list's doors/windows/services lines, the print sheet (header,
+  item sizes, fittings, materials) and the SVG plan labels all use
+  feet/inches and ft² when Imperial is selected, instead of silently
+  staying metric.
+- **The Bedroom template no longer starts with a warning**: its
+  floor lamp stood on the double bed's corner. The bed, bedside
+  table and lamp were nudged apart, and a regression test now
+  proves all three starter templates load warning-free.
+
 ## [1.0.0] - 2026-10-23
 
 The feel release: the same planner, finished to feel like the
