@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Current project-file format version. Readers accept this and older
 /// versions they know how to migrate (see `Project::from_json`).
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// Which wall of the (rectangular) room something is attached to.
 /// Coordinates: origin at the room's south-west corner, +x east, +y north.
@@ -102,6 +102,10 @@ pub struct Opening {
     pub height_m: f64,
     /// Doors only: swings into the room, hinge at the start edge.
     pub swings_in: bool,
+    /// Doors only: the room this door leads to, if the plan has
+    /// several rooms. Purely a label — rooms stay independent.
+    #[serde(default)]
+    pub links_to: Option<u64>,
 }
 
 impl Opening {
@@ -772,7 +776,7 @@ impl CustomItemDef {
 
 /// Quantities for buying materials — areas and lengths only.
 /// There are deliberately no prices or costs anywhere in RoomForge.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct MaterialsReport {
     pub floor_area_m2: f64,
     pub ceiling_area_m2: f64,
@@ -781,6 +785,42 @@ pub struct MaterialsReport {
     pub wall_net_m2: f64,
     pub skirting_m: f64,
     pub perimeter_m: f64,
+}
+
+/// One room of a multi-room plan, stored whole while another room
+/// is being edited. The project keeps the ACTIVE room's contents in
+/// its own fields (so every single-room feature works unchanged)
+/// and the rest here; switching rooms swaps the two.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredRoom {
+    pub id: u64,
+    pub room: Room,
+    #[serde(default)]
+    pub openings: Vec<Opening>,
+    #[serde(default)]
+    pub services: Vec<ServicePoint>,
+    #[serde(default)]
+    pub items: Vec<PlacedItem>,
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
+    #[serde(default)]
+    pub underlay: Option<Underlay>,
+}
+
+impl StoredRoom {
+    /// Capture a project's active room as a stored room (id 0 —
+    /// `Project::add_room` assigns the real id).
+    pub fn from_project(p: &Project) -> StoredRoom {
+        StoredRoom {
+            id: 0,
+            room: p.room.clone(),
+            openings: p.openings.clone(),
+            services: p.services.clone(),
+            items: p.items.clone(),
+            annotations: p.annotations.clone(),
+            underlay: p.underlay.clone(),
+        }
+    }
 }
 
 /// A whole design: one room, its openings/services, and its furniture.
@@ -797,6 +837,14 @@ pub struct Project {
     pub underlay: Option<Underlay>,
     #[serde(default)]
     pub custom_items: Vec<CustomItemDef>,
+    /// The other rooms of the plan (multi-room, format v3). The
+    /// active room's contents live in the fields above.
+    #[serde(default)]
+    pub rooms: Vec<StoredRoom>,
+    /// Id of the room held in the active fields. Repaired on load
+    /// when missing (files from format v2 and earlier).
+    #[serde(default)]
+    pub active_room_id: u64,
     /// Next id to hand out. Persisted so ids never repeat after a reload.
     pub next_id: u64,
 }
@@ -812,7 +860,9 @@ impl Default for Project {
             annotations: Vec::new(),
             underlay: None,
             custom_items: Vec::new(),
-            next_id: 1,
+            rooms: Vec::new(),
+            active_room_id: 1,
+            next_id: 2,
         }
     }
 }
@@ -822,6 +872,165 @@ impl Project {
         let id = self.next_id;
         self.next_id += 1;
         id
+    }
+
+    /// (id, name) of every room in the plan, active room first.
+    pub fn room_list(&self) -> Vec<(u64, String)> {
+        let mut v = vec![(self.active_room_id, self.room.name.clone())];
+        v.extend(self.rooms.iter().map(|r| (r.id, r.room.name.clone())));
+        v
+    }
+
+    /// How many rooms the plan has (always at least one).
+    pub fn room_count(&self) -> usize {
+        1 + self.rooms.len()
+    }
+
+    /// A room's name by id, active or stored.
+    pub fn room_name(&self, id: u64) -> Option<String> {
+        if id == self.active_room_id {
+            return Some(self.room.name.clone());
+        }
+        self.rooms
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.room.name.clone())
+    }
+
+    /// Furniture pieces across the whole plan.
+    pub fn total_items(&self) -> usize {
+        self.items.len() + self.rooms.iter().map(|r| r.items.len()).sum::<usize>()
+    }
+
+    fn active_as_stored(&self) -> StoredRoom {
+        let mut s = StoredRoom::from_project(self);
+        s.id = self.active_room_id;
+        s
+    }
+
+    fn load_stored(&mut self, s: StoredRoom) {
+        self.active_room_id = s.id;
+        self.room = s.room;
+        self.openings = s.openings;
+        self.services = s.services;
+        self.items = s.items;
+        self.annotations = s.annotations;
+        self.underlay = s.underlay;
+    }
+
+    /// Make another room the active one, storing the current room
+    /// whole. Returns false when no room has that id.
+    pub fn switch_room(&mut self, id: u64) -> bool {
+        if id == self.active_room_id {
+            return true;
+        }
+        let Some(pos) = self.rooms.iter().position(|r| r.id == id) else {
+            return false;
+        };
+        // Swap in place so the stored rooms keep their order (the
+        // room tabs don't reshuffle on every switch).
+        let current = self.active_as_stored();
+        let target = std::mem::replace(&mut self.rooms[pos], current);
+        self.load_stored(target);
+        true
+    }
+
+    /// Add a room (its contents come from a template project via
+    /// `StoredRoom::from_project`). The room and everything in it
+    /// get fresh ids from this project's counter — template projects
+    /// hand out the same small ids, so reusing them would collide.
+    /// Assigns and returns the room's id.
+    pub fn add_room(&mut self, mut s: StoredRoom) -> u64 {
+        s.id = self.alloc_id();
+        for it in &mut s.items {
+            it.id = self.alloc_id();
+        }
+        for o in &mut s.openings {
+            o.id = self.alloc_id();
+        }
+        for sv in &mut s.services {
+            sv.id = self.alloc_id();
+        }
+        for a in &mut s.annotations {
+            a.id = self.alloc_id();
+        }
+        let id = s.id;
+        self.rooms.push(s);
+        id
+    }
+
+    fn clear_links_to(&mut self, gone: u64) {
+        for o in &mut self.openings {
+            if o.links_to == Some(gone) {
+                o.links_to = None;
+            }
+        }
+        for r in &mut self.rooms {
+            for o in &mut r.openings {
+                if o.links_to == Some(gone) {
+                    o.links_to = None;
+                }
+            }
+        }
+    }
+
+    /// Delete a room. The last remaining room can't be deleted;
+    /// deleting the active room switches to another first. Door
+    /// links pointing at the deleted room are cleared.
+    pub fn delete_room(&mut self, id: u64) -> bool {
+        if id == self.active_room_id {
+            if self.rooms.is_empty() {
+                return false;
+            }
+            let next = self.rooms[0].id;
+            self.switch_room(next);
+            return self.delete_room(id);
+        }
+        let before = self.rooms.len();
+        self.rooms.retain(|r| r.id != id);
+        if self.rooms.len() == before {
+            return false;
+        }
+        self.clear_links_to(id);
+        true
+    }
+
+    /// Copy a room — contents get fresh ids, the name gains
+    /// " copy". Returns the new room's id.
+    pub fn duplicate_room(&mut self, id: u64) -> Option<u64> {
+        let mut src = if id == self.active_room_id {
+            self.active_as_stored()
+        } else {
+            self.rooms.iter().find(|r| r.id == id)?.clone()
+        };
+        src.room.name = format!("{} copy", src.room.name);
+        // add_room assigns fresh ids to the room and its contents.
+        Some(self.add_room(src))
+    }
+
+    /// A single-room view of one room, for export/render code that
+    /// works room by room. The rooms list is emptied; project-wide
+    /// custom items are carried over.
+    pub fn as_single(&self, id: u64) -> Option<Project> {
+        if id == self.active_room_id {
+            let mut p = self.clone();
+            p.rooms = Vec::new();
+            return Some(p);
+        }
+        let s = self.rooms.iter().find(|r| r.id == id)?;
+        Some(Project {
+            format_version: self.format_version,
+            room: s.room.clone(),
+            openings: s.openings.clone(),
+            services: s.services.clone(),
+            items: s.items.clone(),
+            annotations: s.annotations.clone(),
+            underlay: s.underlay.clone(),
+            custom_items: self.custom_items.clone(),
+            rooms: Vec::new(),
+            active_room_id: s.id,
+            next_id: self.next_id,
+        })
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -855,6 +1064,27 @@ impl Project {
         for c in &mut p.custom_items {
             c.clamp_dims();
         }
+        // Stored rooms get the same repairs, against their own room.
+        for r in &mut p.rooms {
+            r.room.clamp_dims();
+            let rr = r.room.clone();
+            for o in &mut r.openings {
+                o.clamp_to_wall(&rr);
+            }
+            for s in &mut r.services {
+                s.clamp_to_wall(&rr);
+            }
+            for a in &mut r.annotations {
+                a.clamp_inside(&rr);
+            }
+        }
+        let stored_ids = p.rooms.iter().flat_map(|r| {
+            std::iter::once(r.id)
+                .chain(r.items.iter().map(|i| i.id))
+                .chain(r.openings.iter().map(|o| o.id))
+                .chain(r.services.iter().map(|s| s.id))
+                .chain(r.annotations.iter().map(|a| a.id))
+        });
         let max_id = p
             .items
             .iter()
@@ -863,10 +1093,49 @@ impl Project {
             .chain(p.services.iter().map(|s| s.id))
             .chain(p.annotations.iter().map(|a| a.id))
             .chain(p.custom_items.iter().map(|c| c.id))
+            .chain(stored_ids)
             .max()
             .unwrap_or(0);
         if p.next_id <= max_id {
             p.next_id = max_id + 1;
+        }
+        // Multi-room repairs: the active room needs an id (v2 and
+        // earlier files have none), stored ids must be unique, and
+        // door links must point at rooms that exist.
+        if p.active_room_id == 0 {
+            p.active_room_id = p.alloc_id();
+        }
+        let mut seen = vec![p.active_room_id];
+        let mut dup_indices: Vec<usize> = Vec::new();
+        for (i, r) in p.rooms.iter().enumerate() {
+            if seen.contains(&r.id) {
+                dup_indices.push(i);
+            } else {
+                seen.push(r.id);
+            }
+        }
+        let fresh: Vec<u64> = dup_indices.iter().map(|_| p.alloc_id()).collect();
+        for (k, i) in dup_indices.iter().enumerate() {
+            p.rooms[*i].id = fresh[k];
+            seen.push(fresh[k]);
+        }
+        let valid: Vec<u64> = seen.clone();
+        for o in &mut p.openings {
+            if let Some(t) = o.links_to {
+                if !valid.contains(&t) || t == p.active_room_id {
+                    o.links_to = None;
+                }
+            }
+        }
+        for r in &mut p.rooms {
+            let own = r.id;
+            for o in &mut r.openings {
+                if let Some(t) = o.links_to {
+                    if !valid.contains(&t) || t == own {
+                        o.links_to = None;
+                    }
+                }
+            }
         }
         Ok(p)
     }
@@ -1011,6 +1280,114 @@ pub fn door_swing_sector(o: &Opening, room: &Room) -> Option<Vec<(f64, f64)>> {
 mod tests {
     use super::*;
 
+    fn mk_item(p: &mut Project, name: &str) -> u64 {
+        let id = p.alloc_id();
+        p.items.push(PlacedItem {
+            id,
+            catalog_id: "x".into(),
+            name: name.into(),
+            category: "Other".into(),
+            x_m: 1.0,
+            y_m: 1.0,
+            width_m: 0.5,
+            depth_m: 0.5,
+            height_m: 0.5,
+            rotation_deg: 0.0,
+            rgb: [10, 10, 10],
+        });
+        id
+    }
+
+    #[test]
+    fn multi_room_switch_roundtrip_preserves_everything() {
+        let mut p = Project::default();
+        p.room.name = "Kitchen".into();
+        let a = mk_item(&mut p, "Table");
+        // A second room, from a template project.
+        let mut tpl = Project::default();
+        tpl.room.name = "Bedroom".into();
+        mk_item(&mut tpl, "Bed");
+        mk_item(&mut tpl, "Wardrobe");
+        let bed_id = p.add_room(StoredRoom::from_project(&tpl));
+        assert_eq!(p.room_count(), 2);
+        assert_eq!(p.total_items(), 3);
+        // Switch to the bedroom and back: contents intact both ways.
+        assert!(p.switch_room(bed_id));
+        assert_eq!(p.room.name, "Bedroom");
+        assert_eq!(p.items.len(), 2);
+        let active = p.active_room_id;
+        assert!(p.switch_room(p.room_list()[1].0));
+        assert_eq!(p.room.name, "Kitchen");
+        assert_eq!(p.items.len(), 1);
+        assert_eq!(p.items[0].id, a);
+        assert_ne!(active, p.active_room_id);
+        // Unknown id: no switch, no damage.
+        assert!(!p.switch_room(999_999));
+        assert_eq!(p.room.name, "Kitchen");
+    }
+
+    #[test]
+    fn multi_room_delete_and_duplicate_rules() {
+        let mut p = Project::default();
+        assert!(!p.delete_room(p.active_room_id), "last room is safe");
+        let mut tpl = Project::default();
+        tpl.room.name = "Bath".into();
+        mk_item(&mut tpl, "Tub");
+        let bath = p.add_room(StoredRoom::from_project(&tpl));
+        // A door in the active room links to the bathroom.
+        let oid = p.alloc_id();
+        p.openings.push(Opening {
+            id: oid,
+            kind: OpeningKind::Door,
+            wall: Wall::South,
+            offset_m: 1.0,
+            width_m: 0.9,
+            sill_m: 0.0,
+            height_m: 2.1,
+            swings_in: true,
+            links_to: Some(bath),
+        });
+        // Duplicate: fresh ids, " copy" name, source untouched.
+        let copy = p.duplicate_room(bath).unwrap();
+        assert_eq!(p.room_name(copy).as_deref(), Some("Bath copy"));
+        let single = p.as_single(copy).unwrap();
+        assert_eq!(single.items.len(), 1);
+        assert_ne!(single.items[0].id, p.as_single(bath).unwrap().items[0].id);
+        // Delete the original: the door link is cleared, copy stays.
+        assert!(p.delete_room(bath));
+        assert_eq!(p.openings[0].links_to, None);
+        assert_eq!(p.room_count(), 2);
+        // Delete the ACTIVE room: switches to the remaining one.
+        let active = p.active_room_id;
+        assert!(p.delete_room(active));
+        assert_eq!(p.room_count(), 1);
+        assert_eq!(p.room_name(p.active_room_id).as_deref(), Some("Bath copy"));
+        assert!(!p.delete_room(p.active_room_id));
+    }
+
+    #[test]
+    fn multi_room_json_roundtrip_and_v2_migration() {
+        let mut p = Project::default();
+        p.room.name = "Lounge".into();
+        let mut tpl = Project::default();
+        tpl.room.name = "Study".into();
+        mk_item(&mut tpl, "Desk");
+        let study = p.add_room(StoredRoom::from_project(&tpl));
+        let text = p.to_json().unwrap();
+        assert!(text.contains("\"rooms\""), "v3 writes rooms");
+        let back = Project::from_json(&text).unwrap();
+        assert_eq!(back.room_count(), 2);
+        assert_eq!(back.room_name(study).as_deref(), Some("Study"));
+        assert_eq!(back, p);
+        // A v2-shaped file (no rooms keys) loads as a single room
+        // with a repaired active-room id.
+        let v2 = "{\"format_version\":2,\"room\":{\"name\":\"Old\",\"width_m\":4.0,\"depth_m\":3.0,\"height_m\":2.5,\"wall_thickness_m\":0.1,\"wall_rgb\":[230,225,215],\"floor_rgb\":[150,120,90]},\"openings\":[],\"services\":[],\"items\":[],\"next_id\":1}";
+        let old = Project::from_json(v2).unwrap();
+        assert_eq!(old.room_count(), 1);
+        assert_ne!(old.active_room_id, 0);
+        assert_eq!(old.room.name, "Old");
+    }
+
     #[test]
     fn json_roundtrip_preserves_project() {
         let mut p = Project::default();
@@ -1102,6 +1479,7 @@ mod tests {
             sill_m: 0.0,
             height_m: 2.1,
             swings_in: true,
+            links_to: None,
         });
         let iid = p.alloc_id();
         p.items.push(PlacedItem {
@@ -1257,6 +1635,7 @@ mod tests {
             sill_m: 0.9,
             height_m: 1.2,
             swings_in: false,
+            links_to: None,
         };
         o.clamp_to_wall(&p.room);
         assert!(
@@ -1298,6 +1677,7 @@ mod tests {
             sill_m: 0.0,
             height_m: 2.1,
             swings_in: true,
+            links_to: None,
         });
         let wid = p.alloc_id();
         p.openings.push(Opening {
@@ -1309,6 +1689,7 @@ mod tests {
             sill_m: 0.9,
             height_m: 1.2,
             swings_in: false,
+            links_to: None,
         });
         let m = p.materials();
         assert!((m.openings_m2 - (1.89 + 1.8)).abs() < 1e-9);
