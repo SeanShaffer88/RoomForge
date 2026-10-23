@@ -39,8 +39,8 @@ capture into `README.md` as soon as it is supplied.
 
 ## Checklist
 
-- [x] `01-2d-plan.png` — main window, 2D plan with furniture (supplied 2026-10-23, v0.6.0)
-- [ ] `02-3d-view.png` — 3D view, same room (supplied 2026-10-23 from v0.6.0; **refresh after v0.6.1**, which fixes the floor-pattern lines drawing over walls/furniture and the clipped snapshot button visible in that capture)
-- [x] `03-item-list.png` — item list panel (supplied 2026-10-23, v0.6.0)
+- [x] `01-2d-plan.png` — main window, 2D plan with furniture (supplied 2026-10-23, v0.6.0; refreshed 2026-10-23 from v1.0.0 — catalogue cards visible)
+- [x] `02-3d-view.png` — 3D view, same room (refreshed 2026-10-23 from v1.0.0; pattern-over-walls fix and the un-clipped snapshot button both visible)
+- [x] `03-item-list.png` — item list panel (supplied 2026-10-23, v0.6.0; refreshed 2026-10-23 from v1.0.0)
 - [x] `04-snapshot.png` — a PNG snapshot rendered by RoomForge itself (supplied 2026-10-23, v0.6.0)
 - [ ] `05-room-setup.png` — room setup / openings panel, close-up (still owed; shot 1 shows the panel in context)
