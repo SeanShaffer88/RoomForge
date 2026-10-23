@@ -5,6 +5,31 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-23
 
+### Multi-room plans: active room + stored rooms (v1.1.0, format v3)
+
+- **Decision:** A project keeps the ACTIVE room in its original
+  fields and stores the other rooms whole in `rooms: Vec<StoredRoom>`;
+  switching swaps the two (in place, so tab order is stable). File
+  format bumps to v3 — the new fields are serde-defaulted, so v1/v2
+  files load as single-room plans and are repaired on load (active
+  room id assigned, duplicate room ids reissued, dangling door
+  links cleared). `add_room` reissues every inner id from the
+  project's counter, because template projects hand out the same
+  small ids. Doors gain an optional `links_to` room label.
+- **Why:** Every renderer, the walkthrough, collision, materials
+  and warnings already work on "the room in the fields" — this
+  design adds multi-room without touching any of them, and
+  `Project::as_single` lets exports treat each room with the exact
+  single-room code paths. A shared-canvas floor plan (rooms side
+  by side with shared walls) was the alternative; it would have
+  rewritten the geometry core for a benefit most home plans don't
+  need — rooms here are designed one at a time, like the online
+  planners' room-by-room flow.
+- **Consequences:** Rooms don't share walls or a canvas; a door
+  "leads to" another room as a label only. Exports of a single
+  room's plan SVG/snapshot still operate on the active room; the
+  print sheet and item list aggregate the home.
+
 ### The v1.0 feel pack: polish inside the standing scope (v1.0.0)
 
 - **Decision:** SEAN asked for the feel of the IKEA online planner.
