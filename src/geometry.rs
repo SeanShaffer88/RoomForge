@@ -192,9 +192,112 @@ pub fn snap(value: f64, step: f64) -> f64 {
     }
 }
 
+/// The result of alignment snapping while dragging: an adjustment
+/// to apply to the moving item's centre, and the room-coordinate
+/// lines (vertical x's, horizontal y's) that should light up as
+/// guides because something aligned there.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AlignSnap {
+    pub dx: f64,
+    pub dy: f64,
+    pub guides_x: Vec<f64>,
+    pub guides_y: Vec<f64>,
+}
+
+/// Snap a moving item's bounding box to its neighbours and the
+/// room: edges and centres of other items, the walls, and the
+/// room's centre lines — whichever alignment is closest within
+/// `thresh` metres (per axis). This is the "magnetic" feel of a
+/// polished planner, as a pure function.
+pub fn align_snap(
+    moving: (f64, f64, f64, f64),
+    others: &[(f64, f64, f64, f64)],
+    room_w: f64,
+    room_d: f64,
+    thresh: f64,
+) -> AlignSnap {
+    fn axis(
+        feats: [f64; 3],
+        mut targets: Vec<f64>,
+        others: &[(f64, f64, f64, f64)],
+        y_axis: bool,
+        thresh: f64,
+    ) -> (f64, Vec<f64>) {
+        for o in others {
+            let (lo, hi) = if y_axis { (o.1, o.3) } else { (o.0, o.2) };
+            targets.push(lo);
+            targets.push((lo + hi) / 2.0);
+            targets.push(hi);
+        }
+        let mut best: Option<(f64, f64)> = None; // (abs delta, delta)
+        for f in feats {
+            for t in &targets {
+                let d = t - f;
+                if d.abs() <= thresh && best.map(|(b, _)| d.abs() < b - 1e-12).unwrap_or(true) {
+                    best = Some((d.abs(), d));
+                }
+            }
+        }
+        match best {
+            None => (0.0, Vec::new()),
+            Some((_, d)) => {
+                let guides = targets
+                    .iter()
+                    .copied()
+                    .filter(|t| feats.iter().any(|f| (t - (f + d)).abs() < 1e-9))
+                    .collect();
+                (d, guides)
+            }
+        }
+    }
+    let (dx, guides_x) = axis(
+        [moving.0, (moving.0 + moving.2) / 2.0, moving.2],
+        vec![0.0, room_w / 2.0, room_w],
+        others,
+        false,
+        thresh,
+    );
+    let (dy, guides_y) = axis(
+        [moving.1, (moving.1 + moving.3) / 2.0, moving.3],
+        vec![0.0, room_d / 2.0, room_d],
+        others,
+        true,
+        thresh,
+    );
+    AlignSnap {
+        dx,
+        dy,
+        guides_x,
+        guides_y,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn align_snap_finds_edges_centres_and_room_lines() {
+        // Other item occupies x 1.0..2.0, y 1.0..1.5 in a 5x4 room.
+        let others = [(1.0, 1.0, 2.0, 1.5)];
+        // Moving item (1x1) with its left edge 3 cm from the other's:
+        let moving = (2.03, 3.0, 3.03, 4.0);
+        let s = align_snap(moving, &others, 5.0, 4.0, 0.08);
+        assert!((s.dx + 0.03).abs() < 1e-9, "dx {}", s.dx);
+        assert!(s.guides_x.contains(&2.0), "guides {:?}", s.guides_x);
+        // Centre-to-centre: moving centre x = 1.47 vs other centre 1.5.
+        let moving2 = (0.97, 3.0, 1.97, 4.0);
+        let s2 = align_snap(moving2, &others, 5.0, 4.0, 0.08);
+        assert!((s2.dx - 0.03).abs() < 1e-9 && s2.guides_x.contains(&1.5));
+        // Room centre line: centre at 2.47 → snaps to 2.5.
+        let s3 = align_snap((1.97, 0.2, 2.97, 1.2), &[], 5.0, 4.0, 0.08);
+        assert!((s3.dx - 0.03).abs() < 1e-9 && s3.guides_x.contains(&2.5));
+        // Beyond the threshold: nothing happens.
+        let s4 = align_snap((2.2, 3.0, 3.2, 4.0), &others, 5.0, 4.0, 0.08);
+        // (left edge 2.2 is 0.2 from 2.0; centre 2.7 is 0.2 from 2.5 room centre)
+        assert_eq!(s4.dx, 0.0);
+        assert!(s4.guides_x.is_empty());
+    }
 
     fn rect(cx: f64, cy: f64, w: f64, d: f64) -> [(f64, f64); 4] {
         [
