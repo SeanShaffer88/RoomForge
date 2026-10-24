@@ -39,6 +39,18 @@ pub fn render_snapshot(p: &Project, width: u32, height: u32) -> RgbImage {
 }
 
 /// Render the snapshot under a lighting scene (day / evening / night).
+/// Parse every imported model in the project. Snapshot renders are
+/// one-off, so nothing is cached; a def that fails to parse is
+/// simply absent and its items fall back to boxes.
+pub fn prepared_models(
+    p: &Project,
+) -> std::collections::HashMap<u64, crate::model3d::PreparedModel> {
+    p.custom_models
+        .iter()
+        .filter_map(|d| crate::model3d::prepare(d).ok().map(|m| (d.id, m)))
+        .collect()
+}
+
 pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene) -> RgbImage {
     let mut img = RgbImage::from_pixel(width, height, Rgb(scene.background()));
     if width == 0 || height == 0 {
@@ -173,8 +185,21 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
             );
         }
     }
-    // Furniture boxes.
+    // Furniture: imported models as real geometry, the rest boxes.
+    let models = prepared_models(p);
     for it in &p.items {
+        if let Some(prep) = crate::model::model_id_of(&it.catalog_id).and_then(|id| models.get(&id))
+        {
+            for (tri, bright, rgb) in crate::view3d::mesh_tris(it, prep) {
+                push_quad(
+                    &mut layers,
+                    &pr,
+                    &[tri[0], tri[1], tri[2], tri[2]],
+                    shade_scene(rgb, bright, scene),
+                );
+            }
+            continue;
+        }
         let corners = box_corners(it);
         for (idx, bright) in box_faces() {
             let quad = [
@@ -286,7 +311,8 @@ pub fn render_walk(
     if width == 0 || height == 0 {
         return img;
     }
-    for layer in crate::walk::walk_layers(p, w, scene, width as f64, height as f64) {
+    let models = prepared_models(p);
+    for layer in crate::walk::walk_layers(p, w, scene, width as f64, height as f64, &models) {
         match layer.cmd {
             crate::walk::WalkCmd::Fill { pts, color } => fill_polygon(&mut img, &pts, color),
             crate::walk::WalkCmd::Line { a, b, color } => draw_line(&mut img, a, b, color),
@@ -337,6 +363,61 @@ mod tests {
             mean(&night),
             mean(&day)
         );
+    }
+
+    #[test]
+    fn snapshot_renders_imported_model_geometry() {
+        use base64::Engine;
+        // A 1 m cube as OBJ, bright red.
+        let obj = "v 0 0 0\nv 1 0 0\nv 1 0 1\nv 0 0 1\nv 0 1 0\nv 1 1 0\nv 1 1 1\nv 0 1 1\n                   f 1 2 3 4\nf 5 8 7 6\nf 1 5 6 2\nf 2 6 7 3\nf 3 7 8 4\nf 4 8 5 1\n";
+        let mut p = Project::default();
+        let def_id = p.alloc_id();
+        p.custom_models.push(crate::model::CustomModelDef {
+            id: def_id,
+            name: "Cube".into(),
+            format: "obj".into(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(obj.as_bytes()),
+            unit_depth: 1.0,
+            unit_height: 1.0,
+            natural_width_m: 1.0,
+        });
+        let item_id = p.alloc_id();
+        p.items.push(crate::model::PlacedItem {
+            id: item_id,
+            catalog_id: format!("model-{def_id}"),
+            name: "Cube".into(),
+            category: "3D models".into(),
+            x_m: 2.5,
+            y_m: 2.0,
+            width_m: 1.0,
+            depth_m: 1.0,
+            height_m: 1.0,
+            rotation_deg: 0.0,
+            rgb: [200, 30, 30],
+        });
+        let img = render_snapshot(&p, 320, 200);
+        // The model's own colour (the OBJ default grey, shaded)
+        // must appear: grey ~168 shaded by 0.5–1.0 → look for
+        // mid-grey pixels that are NOT the room's palette.
+        let greyish = img
+            .pixels()
+            .filter(|px| {
+                let [r, g, b] = px.0;
+                r > 80
+                    && r < 180
+                    && (r as i32 - g as i32).abs() < 8
+                    && (g as i32 - b as i32).abs() < 8
+            })
+            .count();
+        assert!(greyish > 50, "model faces visible (got {greyish})");
+        // Remove the def: the item falls back to its red box.
+        p.custom_models.clear();
+        let img2 = render_snapshot(&p, 320, 200);
+        let reds = img2
+            .pixels()
+            .filter(|px| px.0[0] > 120 && px.0[1] < 90 && px.0[2] < 90)
+            .count();
+        assert!(reds > 50, "box fallback renders (got {reds})");
     }
 
     #[test]
