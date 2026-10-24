@@ -8,8 +8,8 @@ use image::{Rgb, RgbImage};
 use crate::geometry::rect_cells;
 use crate::model::{OpeningKind, Project};
 use crate::view3d::{
-    box_corners, box_faces, project, shade_scene, shadow_quad, skirting_quad, wall_opening_quad,
-    Camera, Scene,
+    box_corners, box_faces, project, shade_scene, shadow_quad, skirting_quad, style_rgb,
+    wall_opening_quad, Camera, Scene, Style, WallCut,
 };
 
 /// Projects a room-space point to (screen point, depth).
@@ -52,6 +52,18 @@ pub fn prepared_models(
 }
 
 pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene) -> RgbImage {
+    render_snapshot_full(p, width, height, scene, Style::Coloured, WallCut::Full)
+}
+
+/// The snapshot with a render style and a wall cut applied.
+pub fn render_snapshot_full(
+    p: &Project,
+    width: u32,
+    height: u32,
+    scene: Scene,
+    style: Style,
+    cut: WallCut,
+) -> RgbImage {
     let mut img = RgbImage::from_pixel(width, height, Rgb(scene.background()));
     if width == 0 || height == 0 {
         return img;
@@ -109,18 +121,21 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
 
     let outline = room.outline_or_rect();
     let cells = rect_cells(&outline);
+    let top = cut.cut_height(room.height_m);
+    let floor_rgb = style_rgb(room.floor_rgb, style);
+    let wall_rgb = style_rgb(room.wall_rgb, style);
     // Floor cells.
     for &(x1, y1, x2, y2) in &cells {
         push_quad(
             &mut layers,
             &pr,
             &[(x1, y1, 0.0), (x2, y1, 0.0), (x2, y2, 0.0), (x1, y2, 0.0)],
-            shade_scene(room.floor_rgb, 0.9, scene),
+            shade_scene(floor_rgb, 0.9, scene),
         );
     }
     // Floor pattern lines, biased a hair nearer than the floor itself
     // so they paint over it but stay under furniture.
-    let line_color = shade_scene(room.floor_rgb, 0.7, scene);
+    let line_color = shade_scene(floor_rgb, 0.7, scene);
     for (a, b) in room.floor_material.pattern_segments(&cells) {
         let (sa, da) = pr((a.0, a.1, 0.0));
         let (sb, db) = pr((b.0, b.1, 0.0));
@@ -156,10 +171,10 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
             &[
                 (a.0, a.1, 0.0),
                 (b.0, b.1, 0.0),
-                (b.0, b.1, room.height_m),
-                (a.0, a.1, room.height_m),
+                (b.0, b.1, top),
+                (a.0, a.1, top),
             ],
-            shade_scene(room.wall_rgb, bright, scene),
+            shade_scene(wall_rgb, bright, scene),
         );
     }
     // Skirting boards along every wall base.
@@ -170,7 +185,7 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
             &mut layers,
             &pr,
             &skirting_quad(a, b),
-            shade_scene(room.wall_rgb, 1.18, scene),
+            shade_scene(wall_rgb, 1.18, scene),
         );
     }
     // Soft shadows under the furniture (over floor and pattern).
@@ -180,7 +195,7 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
                 &mut layers,
                 &pr,
                 &q,
-                shade_scene(room.floor_rgb, 0.55, scene),
+                shade_scene(floor_rgb, 0.55, scene),
                 0.04,
             );
         }
@@ -195,7 +210,7 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
                     &mut layers,
                     &pr,
                     &[tri[0], tri[1], tri[2], tri[2]],
-                    shade_scene(rgb, bright, scene),
+                    shade_scene(style_rgb(rgb, style), bright, scene),
                 );
             }
             continue;
@@ -208,17 +223,28 @@ pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene)
                 corners[idx[2]],
                 corners[idx[3]],
             ];
-            push_quad(&mut layers, &pr, &quad, shade_scene(it.rgb, bright, scene));
+            push_quad(
+                &mut layers,
+                &pr,
+                &quad,
+                shade_scene(style_rgb(it.rgb, style), bright, scene),
+            );
         }
     }
-    // Window glass, painted last like the live view.
+    // Window glass, painted last like the live view. A wall cut
+    // clips the glass at the cut height; a window whose sill is
+    // above the cut disappears with its wall.
     let mut glass: Vec<Vec<(f64, f64)>> = Vec::new();
     for o in &p.openings {
-        if o.kind != OpeningKind::Window {
+        if o.kind != OpeningKind::Window || o.sill_m >= top {
             continue;
         }
         let quad = wall_opening_quad(p, o);
-        glass.push(quad.iter().map(|&pt| pr(pt).0).collect());
+        glass.push(
+            quad.iter()
+                .map(|&pt| pr((pt.0, pt.1, pt.2.min(top))).0)
+                .collect(),
+        );
     }
 
     layers.sort_by(|a, b| {
@@ -304,6 +330,7 @@ pub fn render_walk(
     p: &Project,
     w: &crate::walk::Walker,
     scene: Scene,
+    style: Style,
     width: u32,
     height: u32,
 ) -> RgbImage {
@@ -312,7 +339,8 @@ pub fn render_walk(
         return img;
     }
     let models = prepared_models(p);
-    for layer in crate::walk::walk_layers(p, w, scene, width as f64, height as f64, &models) {
+    for layer in crate::walk::walk_layers(p, w, scene, style, width as f64, height as f64, &models)
+    {
         match layer.cmd {
             crate::walk::WalkCmd::Fill { pts, color } => fill_polygon(&mut img, &pts, color),
             crate::walk::WalkCmd::Line { a, b, color } => draw_line(&mut img, a, b, color),
@@ -421,17 +449,54 @@ mod tests {
     }
 
     #[test]
+    fn styled_and_cut_snapshots_differ() {
+        // Strongly coloured room, so clay's greying is measurable.
+        let mut p = Project::default();
+        p.room.floor_rgb = [200, 30, 30];
+        p.room.wall_rgb = [30, 30, 200];
+        let grey_frac = |img: &RgbImage| {
+            let grey = img
+                .pixels()
+                .filter(|px| {
+                    let (r, g, b) = (px.0[0] as i32, px.0[1] as i32, px.0[2] as i32);
+                    (r - g).abs() < 14 && (g - b).abs() < 18
+                })
+                .count();
+            grey as f64 / (img.width() * img.height()) as f64
+        };
+        let coloured =
+            render_snapshot_full(&p, 320, 200, Scene::Day, Style::Coloured, WallCut::Full);
+        let clay = render_snapshot_full(&p, 320, 200, Scene::Day, Style::Clay, WallCut::Full);
+        assert!(
+            grey_frac(&clay) > grey_frac(&coloured) + 0.15,
+            "clay should be much greyer: clay {:.2} vs coloured {:.2}",
+            grey_frac(&clay),
+            grey_frac(&coloured)
+        );
+        let low = render_snapshot_full(&p, 320, 200, Scene::Day, Style::Coloured, WallCut::Low);
+        let diff = coloured
+            .pixels()
+            .zip(low.pixels())
+            .filter(|(a, b)| a.0 != b.0)
+            .count();
+        assert!(
+            diff > 500,
+            "a low wall cut changes the picture (got {diff})"
+        );
+    }
+
+    #[test]
     fn walk_render_shows_the_room_from_inside() {
         let p = Project::default();
         let w = crate::walk::Walker::start(&p);
-        let img = render_walk(&p, &w, Scene::Day, 320, 200);
+        let img = render_walk(&p, &w, Scene::Day, Style::Coloured, 320, 200);
         // Standing inside, the room fills essentially the whole frame.
         let non_bg = img
             .pixels()
             .filter(|px| px.0 != Scene::Day.background())
             .count();
         assert!(non_bg > 30_000, "only {non_bg} room pixels from inside");
-        let night = render_walk(&p, &w, Scene::Night, 320, 200);
+        let night = render_walk(&p, &w, Scene::Night, Style::Coloured, 320, 200);
         assert!(night.as_raw() != img.as_raw());
     }
 
