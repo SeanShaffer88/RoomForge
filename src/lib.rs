@@ -8,6 +8,7 @@ pub mod export;
 pub mod geometry;
 pub mod io;
 pub mod model;
+pub mod model3d;
 pub mod render;
 pub mod units;
 pub mod view3d;
