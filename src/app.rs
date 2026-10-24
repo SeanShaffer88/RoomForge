@@ -8,11 +8,13 @@ use roomforge::geometry::{align_snap, point_in_obb, snap};
 use roomforge::model::{
     Annotation, Corner, Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
 };
+use roomforge::model3d::PreparedModel;
 use roomforge::units::{fmt_area, fmt_len, parse_len};
 use roomforge::view3d::{
     box_corners, box_faces, project as project3d, shade_scene, wall_opening_quad, Camera, Scene,
 };
 use roomforge::walk::{walk_layers, WalkCmd, Walker};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -92,6 +94,8 @@ pub struct App {
     notch_v: f64,
     // Custom-item builder form state.
     custom_name: String,
+    model_cache: HashMap<u64, PreparedModel>,
+    model_failed: HashSet<u64>,
     custom_category: String,
     custom_w: f64,
     custom_d: f64,
@@ -343,6 +347,8 @@ impl App {
             notch_h: 1.5,
             notch_v: 1.2,
             custom_name: String::new(),
+            model_cache: HashMap::new(),
+            model_failed: HashSet::new(),
             custom_category: "Other".to_string(),
             custom_w: 0.6,
             custom_d: 0.45,
@@ -533,6 +539,18 @@ fn open_image_dialog() -> Option<PathBuf> {
     None
 }
 
+#[cfg(windows)]
+fn open_model_dialog() -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("3D model", &["glb", "obj"])
+        .pick_file()
+}
+
+#[cfg(not(windows))]
+fn open_model_dialog() -> Option<PathBuf> {
+    None
+}
+
 #[cfg(not(windows))]
 fn open_dialog() -> Option<PathBuf> {
     None
@@ -555,6 +573,7 @@ impl eframe::App for App {
         if self.show_gallery {
             self.gallery_window(ctx);
         }
+        self.sync_model_cache();
         self.top_bar(ctx);
         self.room_tabs(ctx);
         self.bottom_bar(ctx);
@@ -726,6 +745,7 @@ impl App {
                     ui.label("• In the 3D view, “Walk through the room” steps inside it: W A S D move, Q/E or dragging turns your head, Esc steps back out. You bump into walls and furniture, just like real life — and “Save PNG of this view” keeps a picture of where you stood.");
                     ui.label("• New → Template gallery shows the starter rooms as pictures, if you would rather rearrange than start from bare walls.");
                     ui.label("• A plan can hold several rooms: the Rooms strip under the top bar switches between them, “+ Add room” adds another (each room keeps its own size, flooring and furniture), and a door can be told which room it leads to. The item list and print sheet cover the whole home.");
+                    ui.label("• Got a 3D model of your own furniture (a .glb or .obj file)? “Your 3D models” in the catalogue imports it — it renders with its real shape in 3D and on walks, and travels inside the plan file.");
                     ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
                 });
             });
@@ -1140,7 +1160,183 @@ impl App {
                         });
                     }
                     self.custom_items_section(ui);
+                    self.custom_models_section(ui);
                 });
+            });
+    }
+
+    /// Keep the parsed-model cache in step with the project's
+    /// model definitions: parse new ones once, drop deleted ones.
+    /// Parse failures are remembered so a broken def falls back to
+    /// a box quietly instead of being retried every frame.
+    fn sync_model_cache(&mut self) {
+        let live: HashSet<u64> = self.project.custom_models.iter().map(|d| d.id).collect();
+        self.model_cache.retain(|id, _| live.contains(id));
+        self.model_failed.retain(|id| live.contains(id));
+        for d in &self.project.custom_models {
+            if !self.model_cache.contains_key(&d.id) && !self.model_failed.contains(&d.id) {
+                match roomforge::model3d::prepare(d) {
+                    Ok(p) => {
+                        self.model_cache.insert(d.id, p);
+                    }
+                    Err(_) => {
+                        self.model_failed.insert(d.id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Import a GLB/OBJ file as a placeable 3D model definition.
+    fn import_model(&mut self) {
+        let Some(path) = open_model_dialog() else {
+            self.status = "Model import is available through the file dialog on Windows.".into();
+            return;
+        };
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if ext != "glb" && ext != "obj" {
+            self.status = "Please choose a .glb or .obj model file.".into();
+            return;
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                self.status = format!("Could not read {}: {e}", path.display());
+                return;
+            }
+        };
+        if bytes.len() > 10 * 1024 * 1024 {
+            self.status = "That model file is over 10 MB — plans carry their models inside the file, so please use a smaller export.".into();
+            return;
+        }
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Model")
+            .to_string();
+        use base64::Engine;
+        let def_stub = roomforge::model::CustomModelDef {
+            id: 0,
+            name: stem.clone(),
+            format: ext.clone(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+            unit_depth: 1.0,
+            unit_height: 1.0,
+            natural_width_m: 1.0,
+        };
+        let prep = match roomforge::model3d::prepare(&def_stub) {
+            Ok(p) => p,
+            Err(e) => {
+                self.status = e;
+                return;
+            }
+        };
+        // A unique display name: "Chair", "Chair (2)", …
+        let mut name = stem;
+        let mut n = 2;
+        while self.project.custom_models.iter().any(|d| d.name == name) {
+            name = format!("{} ({n})", def_stub.name);
+            n += 1;
+        }
+        self.snapshot();
+        let id = self.project.alloc_id();
+        let w = prep.natural_width.clamp(0.2, 4.0);
+        let first_rgb = prep
+            .meshes
+            .first()
+            .map(|m| m.rgb)
+            .unwrap_or([168, 162, 154]);
+        self.project
+            .custom_models
+            .push(roomforge::model::CustomModelDef {
+                id,
+                name: name.clone(),
+                format: ext,
+                data_base64: def_stub.data_base64,
+                unit_depth: prep.unit_depth,
+                unit_height: prep.unit_height,
+                natural_width_m: prep.natural_width,
+            });
+        self.model_cache.insert(id, prep.clone());
+        self.placing = Some(PlaceTemplate {
+            catalog_id: format!("model-{id}"),
+            name: name.clone(),
+            category: "3D models".into(),
+            width_m: w,
+            depth_m: w * prep.unit_depth,
+            height_m: w * prep.unit_height,
+            rgb: first_rgb,
+        });
+        self.status = format!("Model imported — placing: {name}. Click in the room.");
+        self.mark_dirty();
+    }
+
+    /// "Your 3D models": imported GLB/OBJ definitions, placeable
+    /// like catalog items. Definitions live in the project file.
+    fn custom_models_section(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Your 3D models — imported")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label("Bring your own furniture: import a .glb or .obj model and it renders with real shape in the 3D view and walkthrough. In the 2D plan it shows as its footprint.");
+                let mut place_def: Option<PlaceTemplate> = None;
+                let mut delete_def: Option<u64> = None;
+                for d in &self.project.custom_models {
+                    ui.horizontal(|ui| {
+                        let w = d.natural_width_m.clamp(0.2, 4.0);
+                        let label = format!("{}  ({})", d.name, fmt_len(w, self.imperial));
+                        let selected = self.placing.as_ref().map(|p| p.catalog_id.clone())
+                            == Some(d.catalog_id());
+                        if ui
+                            .selectable_label(selected, label)
+                            .on_hover_text("Click, then click in the room to place it")
+                            .clicked()
+                        {
+                            place_def = Some(PlaceTemplate {
+                                catalog_id: d.catalog_id(),
+                                name: d.name.clone(),
+                                category: "3D models".into(),
+                                width_m: w,
+                                depth_m: w * d.unit_depth,
+                                height_m: w * d.unit_height,
+                                rgb: self
+                                    .model_cache
+                                    .get(&d.id)
+                                    .and_then(|p| p.meshes.first())
+                                    .map(|m| m.rgb)
+                                    .unwrap_or([168, 162, 154]),
+                            });
+                        }
+                        if ui
+                            .small_button("✕")
+                            .on_hover_text(
+                                "Remove this model (placed copies fall back to simple boxes)",
+                            )
+                            .clicked()
+                        {
+                            delete_def = Some(d.id);
+                        }
+                    });
+                }
+                if let Some(t) = place_def {
+                    self.status = format!("Placing: {}. Click in the room.", t.name);
+                    self.placing = Some(t);
+                }
+                if let Some(id) = delete_def {
+                    self.snapshot();
+                    self.project.custom_models.retain(|d| d.id != id);
+                    self.mark_dirty();
+                }
+                if ui
+                    .button("Import 3D model…")
+                    .on_hover_text("Choose a .glb or .obj file (up to 10 MB) to add as furniture")
+                    .clicked()
+                {
+                    self.import_model();
+                }
             });
     }
 
@@ -1824,7 +2020,19 @@ impl App {
         };
         let mut delete = false;
         let mut duplicate = false;
+        let model_name = self
+            .project
+            .items
+            .iter()
+            .find(|i| i.id == id)
+            .and_then(|it| self.project.model_def(&it.catalog_id))
+            .map(|d| d.name.clone());
         if let Some(it) = self.project.items.iter_mut().find(|i| i.id == id) {
+            if let Some(name) = &model_name {
+                ui.label(format!(
+                    "3D model: {name} — real shape in the 3D views; the plan shows its footprint."
+                ));
+            }
             ui.horizontal(|ui| {
                 ui.label("Name");
                 ui.text_edit_singleline(&mut it.name);
@@ -2656,6 +2864,7 @@ impl App {
             self.scene,
             rect.width() as f64,
             rect.height() as f64,
+            &self.model_cache,
         );
         for layer in layers {
             match layer.cmd {
@@ -2831,8 +3040,35 @@ impl App {
                 ));
             }
         }
-        // Furniture boxes
+        // Furniture: imported models as real geometry, the rest boxes
         for it in &self.project.items {
+            if let Some(prep) = roomforge::model::model_id_of(&it.catalog_id)
+                .and_then(|id| self.model_cache.get(&id))
+            {
+                for (tri, bright, mrgb) in roomforge::view3d::mesh_tris(it, prep) {
+                    let mut pts = Vec::with_capacity(3);
+                    let mut depth = 0.0;
+                    for &p in &tri {
+                        let (pos, d) = pr(p);
+                        pts.push(pos);
+                        depth += d;
+                    }
+                    let base = shade_scene(mrgb, bright, self.scene);
+                    let col = if self.selected_item == Some(it.id) {
+                        // Selected models blush red (boxes redden their
+                        // top face; a model has no single top face).
+                        Color32::from_rgb(
+                            ((base[0] as u16 + 229) / 2) as u8,
+                            ((base[1] as u16 + 72) / 2) as u8,
+                            ((base[2] as u16 + 77) / 2) as u8,
+                        )
+                    } else {
+                        rgb(base)
+                    };
+                    draws.push((depth / 3.0, Draw::Fill(pts, col)));
+                }
+                continue;
+            }
             let corners = box_corners(it);
             for (idx, bright) in box_faces() {
                 let quad = [
