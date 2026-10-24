@@ -107,6 +107,64 @@ pub fn box_corners(it: &crate::model::PlacedItem) -> [(f64, f64, f64); 8] {
 /// Box faces as (corner indices, brightness 0.55–1.0). The brightness is
 /// a fixed light-from-above/south shading so the painter needs no
 /// lighting code of its own.
+/// World-space triangles for a placed item that carries an
+/// imported 3D model: the prepared unit meshes scaled onto the
+/// item's footprint and height, rotated and translated with it.
+/// Brightness comes from each triangle's world normal lit by the
+/// same fixed light the box shades imply, double-sided (imported
+/// models often have inconsistent winding). Returns
+/// (points, brightness, base colour) per triangle.
+/// One rendered model triangle: world points, brightness, colour.
+pub type MeshTri = ([(f64, f64, f64); 3], f64, [u8; 3]);
+
+pub fn mesh_tris(
+    it: &crate::model::PlacedItem,
+    prep: &crate::model3d::PreparedModel,
+) -> Vec<MeshTri> {
+    let rad = it.rotation_deg.to_radians();
+    let (s, c) = rad.sin_cos();
+    let sx = it.width_m;
+    let sy = if prep.unit_depth > 1e-9 {
+        it.depth_m / prep.unit_depth
+    } else {
+        it.width_m
+    };
+    let sz = if prep.unit_height > 1e-9 {
+        it.height_m / prep.unit_height
+    } else {
+        it.width_m
+    };
+    // Fixed light, roughly from the south-west above (length ≈ 1).
+    let l = (-0.35, -0.5, 0.79);
+    let mut out = Vec::new();
+    for mesh in &prep.meshes {
+        for tri in &mesh.tris {
+            let w = tri.map(|p| {
+                let lx = p[0] as f64 * sx;
+                let ly = p[1] as f64 * sy;
+                (
+                    it.x_m + lx * c - ly * s,
+                    it.y_m + lx * s + ly * c,
+                    p[2] as f64 * sz,
+                )
+            });
+            let (a, b, cc) = (w[0], w[1], w[2]);
+            let u = (b.0 - a.0, b.1 - a.1, b.2 - a.2);
+            let vv = (cc.0 - a.0, cc.1 - a.1, cc.2 - a.2);
+            let n = (
+                u.1 * vv.2 - u.2 * vv.1,
+                u.2 * vv.0 - u.0 * vv.2,
+                u.0 * vv.1 - u.1 * vv.0,
+            );
+            let len = (n.0 * n.0 + n.1 * n.1 + n.2 * n.2).sqrt().max(1e-12);
+            let d = ((n.0 / len) * l.0 + (n.1 / len) * l.1 + (n.2 / len) * l.2).abs();
+            let bright = (0.5f64 + 0.55 * d).clamp(0.3, 1.0);
+            out.push((w, bright, mesh.rgb));
+        }
+    }
+    out
+}
+
 pub fn box_faces() -> [([usize; 4], f64); 6] {
     [
         ([0, 1, 2, 3], 0.62), // base (rarely visible)
@@ -230,6 +288,50 @@ pub fn shade_scene(rgb: [u8; 3], factor: f64, scene: Scene) -> [u8; 3] {
 mod tests {
     use super::*;
     use crate::model::PlacedItem;
+
+    #[test]
+    fn mesh_tris_fit_the_footprint() {
+        let def = crate::model::CustomModelDef {
+            id: 1,
+            name: "T".into(),
+            format: "obj".into(),
+            data_base64: String::new(),
+            unit_depth: 0.5,
+            unit_height: 0.5,
+            natural_width_m: 2.0,
+        };
+        let prep = crate::model3d::PreparedModel {
+            meshes: vec![crate::model3d::Mesh {
+                tris: vec![[[-0.5, -0.25, 0.0], [0.5, -0.25, 0.0], [0.0, 0.25, 0.5]]],
+                rgb: [10, 20, 30],
+            }],
+            unit_depth: def.unit_depth,
+            unit_height: def.unit_height,
+            natural_width: 2.0,
+        };
+        let it = PlacedItem {
+            id: 1,
+            catalog_id: "model-1".into(),
+            name: "T".into(),
+            category: "3D models".into(),
+            x_m: 2.0,
+            y_m: 2.0,
+            width_m: 2.0,
+            depth_m: 1.0,
+            height_m: 1.0,
+            rotation_deg: 0.0,
+            rgb: [0, 0, 0],
+        };
+        let tris = mesh_tris(&it, &prep);
+        assert_eq!(tris.len(), 1);
+        let (pts, bright, rgb) = &tris[0];
+        assert_eq!(*rgb, [10, 20, 30]);
+        assert!((0.3..=1.0).contains(bright));
+        // x spans the item's width around its centre; z tops at height.
+        let xs: Vec<f64> = pts.iter().map(|p| p.0).collect();
+        assert!((xs.iter().cloned().fold(f64::MIN, f64::max) - 3.0).abs() < 1e-9);
+        assert!((pts[2].2 - 1.0).abs() < 1e-9);
+    }
 
     #[test]
     fn skirting_and_shadow_quads() {
