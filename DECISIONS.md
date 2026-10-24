@@ -5,6 +5,30 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-23
 
+### Model import: hand-rolled GLB/OBJ subset, prepared unit space (v1.2.0, format v4)
+
+- **Decision:** Import is a small library module (`model3d`) with
+  hand-written parsers for the static-mesh subset of GLB and OBJ —
+  no new dependencies. Parsers convert to the room's Z-up frame
+  and prepare models into a unit space (width 1, centred, grounded);
+  the definition stores the source file base64 plus the depth/
+  height ratios, and rendering scales onto the placed item's
+  footprint (`view3d::mesh_tris`, brightness from face normals,
+  double-sided). All three render paths share the branch: model
+  items draw triangles, everything else boxes, and a missing or
+  unparseable definition falls back to the box.
+- **Why:** Furniture models people actually have are static
+  meshes; animation/skins/textures would multiply the work for
+  little planning value. Storing the source file (not cooked
+  geometry) keeps plans honest and re-preparable; parsing is
+  cached per definition in the GUI and done per-call in the
+  one-off snapshot renderer.
+- **Consequences:** OBJ materials (.mtl) and glTF textures are
+  ignored — parts render in their base colour (OBJ: a warm grey).
+  Non-uniform resizing stretches a model, exactly as it stretches
+  its footprint; the properties panel labels model items so the
+  behaviour is discoverable.
+
 ### Multi-room plans: active room + stored rooms (v1.1.0, format v3)
 
 - **Decision:** A project keeps the ACTIVE room in its original
