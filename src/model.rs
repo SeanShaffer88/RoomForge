@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Current project-file format version. Readers accept this and older
 /// versions they know how to migrate (see `Project::from_json`).
-pub const FORMAT_VERSION: u32 = 4;
+pub const FORMAT_VERSION: u32 = 5;
 
 /// Which wall of the (rectangular) room something is attached to.
 /// Coordinates: origin at the room's south-west corner, +x east, +y north.
@@ -857,6 +857,24 @@ impl StoredRoom {
 }
 
 /// A whole design: one room, its openings/services, and its furniture.
+/// A saved 3D view stored in the plan (format v5): the camera
+/// angles plus the lighting scene, render style and wall cut that
+/// were showing when it was saved. Recalling one restores the
+/// whole presentation in one click.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedView {
+    pub id: u64,
+    pub name: String,
+    pub yaw_deg: f64,
+    pub pitch_deg: f64,
+    pub scale: f64,
+    pub scene: crate::view3d::Scene,
+    #[serde(default)]
+    pub style: crate::view3d::Style,
+    #[serde(default)]
+    pub wall_cut: crate::view3d::WallCut,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub format_version: u32,
@@ -873,6 +891,9 @@ pub struct Project {
     /// User-imported 3D models (format v4).
     #[serde(default)]
     pub custom_models: Vec<CustomModelDef>,
+    /// Saved 3D views (format v5).
+    #[serde(default)]
+    pub views: Vec<SavedView>,
     /// The other rooms of the plan (multi-room, format v3). The
     /// active room's contents live in the fields above.
     #[serde(default)]
@@ -897,6 +918,7 @@ impl Default for Project {
             underlay: None,
             custom_items: Vec::new(),
             custom_models: Vec::new(),
+            views: Vec::new(),
             rooms: Vec::new(),
             active_room_id: 1,
             next_id: 2,
@@ -1071,6 +1093,7 @@ impl Project {
             underlay: s.underlay.clone(),
             custom_items: self.custom_items.clone(),
             custom_models: self.custom_models.clone(),
+            views: self.views.clone(),
             rooms: Vec::new(),
             active_room_id: s.id,
             next_id: self.next_id,
@@ -1138,6 +1161,7 @@ impl Project {
             .chain(p.annotations.iter().map(|a| a.id))
             .chain(p.custom_items.iter().map(|c| c.id))
             .chain(p.custom_models.iter().map(|c| c.id))
+            .chain(p.views.iter().map(|v| v.id))
             .chain(stored_ids)
             .max()
             .unwrap_or(0);
@@ -1408,6 +1432,30 @@ mod tests {
         assert_eq!(p.room_count(), 1);
         assert_eq!(p.room_name(p.active_room_id).as_deref(), Some("Bath copy"));
         assert!(!p.delete_room(p.active_room_id));
+    }
+
+    #[test]
+    fn saved_views_round_trip() {
+        let mut p = Project::default();
+        let id = p.alloc_id();
+        p.views.push(SavedView {
+            id,
+            name: "From the door".into(),
+            yaw_deg: 120.0,
+            pitch_deg: 45.0,
+            scale: 90.0,
+            scene: crate::view3d::Scene::Evening,
+            style: crate::view3d::Style::Clay,
+            wall_cut: crate::view3d::WallCut::Low,
+        });
+        let json = p.to_json().unwrap();
+        let back = Project::from_json(&json).unwrap();
+        assert_eq!(back, p);
+        assert_eq!(back.views[0].name, "From the door");
+        // A v4 file (no views key) loads with no views.
+        let v4 = json.replace("\"views\":", "\"views_ignored\":");
+        let old = Project::from_json(&v4).unwrap();
+        assert!(old.views.is_empty());
     }
 
     #[test]
