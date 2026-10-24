@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Current project-file format version. Readers accept this and older
 /// versions they know how to migrate (see `Project::from_json`).
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 
 /// Which wall of the (rectangular) room something is attached to.
 /// Coordinates: origin at the room's south-west corner, +x east, +y north.
@@ -774,6 +774,39 @@ impl CustomItemDef {
     }
 }
 
+/// A user-imported 3D model (GLB or OBJ), stored in the project as
+/// base64 so plans stay portable. Placed instances reference it by
+/// `model-<id>` and render with real geometry (parsed by
+/// `crate::model3d`) instead of a box; everything else about them —
+/// footprint, lists, warnings — works like any other item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CustomModelDef {
+    pub id: u64,
+    pub name: String,
+    /// "glb" or "obj".
+    pub format: String,
+    /// The source file, base64-encoded.
+    pub data_base64: String,
+    /// Proportions of the prepared model at width 1 (filled in at
+    /// import from the parsed geometry).
+    pub unit_depth: f64,
+    pub unit_height: f64,
+    /// The model's own width in metres when imported.
+    pub natural_width_m: f64,
+}
+
+impl CustomModelDef {
+    /// The catalog id placed instances of this model carry.
+    pub fn catalog_id(&self) -> String {
+        format!("model-{}", self.id)
+    }
+}
+
+/// The model-def id inside a `model-<id>` catalog id, if it is one.
+pub fn model_id_of(catalog_id: &str) -> Option<u64> {
+    catalog_id.strip_prefix("model-")?.parse().ok()
+}
+
 /// Quantities for buying materials — areas and lengths only.
 /// There are deliberately no prices or costs anywhere in RoomForge.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -837,6 +870,9 @@ pub struct Project {
     pub underlay: Option<Underlay>,
     #[serde(default)]
     pub custom_items: Vec<CustomItemDef>,
+    /// User-imported 3D models (format v4).
+    #[serde(default)]
+    pub custom_models: Vec<CustomModelDef>,
     /// The other rooms of the plan (multi-room, format v3). The
     /// active room's contents live in the fields above.
     #[serde(default)]
@@ -860,6 +896,7 @@ impl Default for Project {
             annotations: Vec::new(),
             underlay: None,
             custom_items: Vec::new(),
+            custom_models: Vec::new(),
             rooms: Vec::new(),
             active_room_id: 1,
             next_id: 2,
@@ -895,6 +932,12 @@ impl Project {
             .iter()
             .find(|r| r.id == id)
             .map(|r| r.room.name.clone())
+    }
+
+    /// The imported-model definition a catalog id refers to.
+    pub fn model_def(&self, catalog_id: &str) -> Option<&CustomModelDef> {
+        let id = model_id_of(catalog_id)?;
+        self.custom_models.iter().find(|d| d.id == id)
     }
 
     /// Furniture pieces across the whole plan.
@@ -1027,6 +1070,7 @@ impl Project {
             annotations: s.annotations.clone(),
             underlay: s.underlay.clone(),
             custom_items: self.custom_items.clone(),
+            custom_models: self.custom_models.clone(),
             rooms: Vec::new(),
             active_room_id: s.id,
             next_id: self.next_id,
@@ -1093,6 +1137,7 @@ impl Project {
             .chain(p.services.iter().map(|s| s.id))
             .chain(p.annotations.iter().map(|a| a.id))
             .chain(p.custom_items.iter().map(|c| c.id))
+            .chain(p.custom_models.iter().map(|c| c.id))
             .chain(stored_ids)
             .max()
             .unwrap_or(0);
