@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-24
+
+The presentation release: three ideas borrowed from professional
+3D modellers, translated for a room planner.
+
+### Added
+
+- **Saved views** (file format v5): "Saved views…" in the 3D view
+  stores the whole presentation — camera angle and zoom, lighting
+  scene, render style and wall cut — under a name, inside the
+  plan. Clicking a saved view restores it all at once; views can
+  be deleted, and they travel when a plan is shared.
+- **Clay render style**: a Style row in the 3D view (and in the
+  walkthrough) switches between the room's real colours and a
+  warm-grey "clay" look that flattens every surface by brightness
+  — for judging shapes and layout without colour getting in the
+  way. PNG snapshots use whichever style is showing.
+- **Wall cutaway**: a Walls row (Full / Half / Low) caps how much
+  wall the 3D views draw, so you can see into the room like a
+  section cut. Window glass clips at the cut, windows above it
+  hide, and snapshots honour the cut too. Rendering only — the
+  plan itself is untouched, and the walkthrough always keeps
+  full-height walls (you are standing inside).
+
 ## [1.2.0] - 2026-10-23
 
 ### Added
