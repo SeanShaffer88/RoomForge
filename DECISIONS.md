@@ -3,6 +3,29 @@
 A running log of significant decisions for RoomForge: what was decided,
 why, and what it means. Newest entries first within each date.
 
+## 2026-10-24
+
+### Presentation state: saved views, clay style, wall cut (v1.3.0, format v5)
+
+- **Decision:** A SketchUp Pro inspiration pass (see
+  docs/FEATURE_ADOPTION.md, 2026-10-24 section) adopted its three
+  presentation ideas in planner form. Saved views persist camera +
+  scene + style + cut in the plan (`SavedView`, format v5) — views
+  are plan content, not app preferences, so they travel. The clay
+  style is a pure colour mapping (`view3d::style_rgb`) applied at
+  every shade call-site in all renderers, never a model change.
+  The wall cut is a render-time height cap (`WallCut::cut_height`)
+  applied in the orbit view and snapshots only; the walkthrough
+  ignores it because the viewer is inside the room.
+- **Why:** Presenting a plan (to family, a builder, one's future
+  self) is half the product's job; named views make good angles
+  repeatable, clay removes colour noise when judging layout, and
+  a height cut is the honest equivalent of a section plane for
+  single-storey room shells.
+- **Consequences:** Glass is clipped at the cut and windows above
+  it hidden in cut views — documented behaviour, not a bug. Style
+  and cut are live prefs; only saved views persist them.
+
 ## 2026-10-23
 
 ### Model import: hand-rolled GLB/OBJ subset, prepared unit space (v1.2.0, format v4)
