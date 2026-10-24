@@ -6,12 +6,14 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stro
 use roomforge::catalog::{catalog, categories, CatalogItem};
 use roomforge::geometry::{align_snap, point_in_obb, snap};
 use roomforge::model::{
-    Annotation, Corner, Opening, OpeningKind, PlacedItem, Project, ServiceKind, ServicePoint, Wall,
+    Annotation, Corner, Opening, OpeningKind, PlacedItem, Project, SavedView, ServiceKind,
+    ServicePoint, Wall,
 };
 use roomforge::model3d::PreparedModel;
 use roomforge::units::{fmt_area, fmt_len, parse_len};
 use roomforge::view3d::{
-    box_corners, box_faces, project as project3d, shade_scene, wall_opening_quad, Camera, Scene,
+    box_corners, box_faces, project as project3d, shade_scene, style_rgb, wall_opening_quad,
+    Camera, Scene, Style, WallCut,
 };
 use roomforge::walk::{walk_layers, WalkCmd, Walker};
 use std::collections::{HashMap, HashSet};
@@ -87,6 +89,10 @@ pub struct App {
     gallery_for_room: bool,
     text_scale: f32,
     scene: Scene,
+    style: Style,
+    wall_cut: WallCut,
+    show_views: bool,
+    view_name: String,
     walking: bool,
     walker: Walker,
     // Room-shape (notch) form state.
@@ -342,6 +348,10 @@ impl App {
             gallery_for_room: false,
             text_scale: 1.0,
             scene: Scene::Day,
+            style: Style::Coloured,
+            wall_cut: WallCut::Full,
+            show_views: false,
+            view_name: String::new(),
             walking: false,
             walker: Walker::default(),
             notch_h: 1.5,
@@ -487,8 +497,14 @@ impl App {
                 .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-")
         );
         if let Some(path) = save_dialog("PNG image", "png", &name) {
-            let img =
-                roomforge::render::render_snapshot_scene(&self.project, 1280, 800, self.scene);
+            let img = roomforge::render::render_snapshot_full(
+                &self.project,
+                1280,
+                800,
+                self.scene,
+                self.style,
+                self.wall_cut,
+            );
             match img.save(&path) {
                 Ok(()) => self.status = format!("3D snapshot written to {}", path.display()),
                 Err(e) => self.status = format!("Could not write {}: {e}", path.display()),
@@ -572,6 +588,9 @@ impl eframe::App for App {
         }
         if self.show_gallery {
             self.gallery_window(ctx);
+        }
+        if self.show_views {
+            self.views_window(ctx);
         }
         self.sync_model_cache();
         self.top_bar(ctx);
@@ -746,6 +765,7 @@ impl App {
                     ui.label("• New → Template gallery shows the starter rooms as pictures, if you would rather rearrange than start from bare walls.");
                     ui.label("• A plan can hold several rooms: the Rooms strip under the top bar switches between them, “+ Add room” adds another (each room keeps its own size, flooring and furniture), and a door can be told which room it leads to. The item list and print sheet cover the whole home.");
                     ui.label("• Got a 3D model of your own furniture (a .glb or .obj file)? “Your 3D models” in the catalogue imports it — it renders with its real shape in 3D and on walks, and travels inside the plan file.");
+                    ui.label("• Presenting a room: the 3D view's Style (Coloured/Clay) and Walls (Full/Half/Low) rows change how it looks, and “Saved views…” stores a whole setup — camera, lighting, style and wall cut — in the plan to jump back to.");
                     ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
                 });
             });
@@ -891,8 +911,14 @@ impl App {
                 .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-")
         );
         if let Some(path) = save_dialog("PNG image", "png", &name) {
-            let img =
-                roomforge::render::render_walk(&self.project, &self.walker, self.scene, 1280, 800);
+            let img = roomforge::render::render_walk(
+                &self.project,
+                &self.walker,
+                self.scene,
+                self.style,
+                1280,
+                800,
+            );
             match img.save(&path) {
                 Ok(()) => self.status = format!("Walk view written to {}", path.display()),
                 Err(e) => self.status = format!("Could not write {}: {e}", path.display()),
@@ -2012,6 +2038,98 @@ impl App {
         ui.label("Tip: click a door, window or service marker in the plan to edit it here.");
     }
 
+    /// The Saved views window: recall a stored presentation
+    /// (camera + lighting + style + wall cut), delete one, or save
+    /// the current setup under a name. Views live in the plan.
+    fn views_window(&mut self, ctx: &egui::Context) {
+        let mut open = true;
+        let mut apply: Option<SavedView> = None;
+        let mut delete: Option<u64> = None;
+        egui::Window::new("Saved views")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(340.0)
+            .show(ctx, |ui| {
+                ui.label(
+                    "A saved view remembers the camera, lighting, style and wall cut. \
+                     Click one to jump back to it — views travel with the plan.",
+                );
+                ui.add_space(4.0);
+                if self.project.views.is_empty() {
+                    ui.label("No saved views yet. Set up a view you like in the 3D tab, then save it below.");
+                }
+                for v in &self.project.views {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .selectable_label(false, &v.name)
+                            .on_hover_text("Show this view")
+                            .clicked()
+                        {
+                            apply = Some(v.clone());
+                        }
+                        if ui
+                            .small_button("✕")
+                            .on_hover_text("Delete this view")
+                            .clicked()
+                        {
+                            delete = Some(v.id);
+                        }
+                    });
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut self.view_name);
+                });
+                if ui
+                    .button("Save the current view")
+                    .on_hover_text("Store the camera, lighting, style and wall cut exactly as they are now")
+                    .clicked()
+                {
+                    let name = if self.view_name.trim().is_empty() {
+                        format!("View {}", self.project.views.len() + 1)
+                    } else {
+                        self.view_name.trim().to_string()
+                    };
+                    self.snapshot();
+                    let id = self.project.alloc_id();
+                    self.project.views.push(SavedView {
+                        id,
+                        name,
+                        yaw_deg: self.camera.yaw_deg,
+                        pitch_deg: self.camera.pitch_deg,
+                        scale: self.camera.scale,
+                        scene: self.scene,
+                        style: self.style,
+                        wall_cut: self.wall_cut,
+                    });
+                    self.view_name.clear();
+                    self.mark_dirty();
+                    self.status = "View saved — it travels with the plan.".into();
+                }
+            });
+        if !open {
+            self.show_views = false;
+        }
+        if let Some(v) = apply {
+            self.camera.yaw_deg = v.yaw_deg;
+            self.camera.pitch_deg = v.pitch_deg;
+            self.camera.scale = v.scale;
+            self.scene = v.scene;
+            self.style = v.style;
+            self.wall_cut = v.wall_cut;
+            self.view = View::ThreeD;
+            self.walking = false;
+            self.show_views = false;
+            self.status = format!("View “{}” applied.", v.name);
+        }
+        if let Some(id) = delete {
+            self.snapshot();
+            self.project.views.retain(|v| v.id != id);
+            self.mark_dirty();
+        }
+    }
+
     fn selection_section(&mut self, ui: &mut egui::Ui) {
         ui.heading("Selected furniture");
         let Some(id) = self.selected_item else {
@@ -2802,6 +2920,29 @@ impl App {
                 }
             }
             ui.separator();
+            ui.label("Style");
+            for (st, tip) in [
+                (Style::Coloured, "The room's real colours"),
+                (
+                    Style::Clay,
+                    "Everything in warm grey — good for judging shapes",
+                ),
+            ] {
+                if ui
+                    .selectable_label(
+                        self.style == st,
+                        match st {
+                            Style::Coloured => "Coloured",
+                            Style::Clay => "Clay",
+                        },
+                    )
+                    .on_hover_text(tip)
+                    .clicked()
+                {
+                    self.style = st;
+                }
+            }
+            ui.separator();
             if ui
                 .button("Save PNG of this view")
                 .on_hover_text("Render the view from where you're standing to a PNG picture")
@@ -2862,6 +3003,7 @@ impl App {
             &self.project,
             &self.walker,
             self.scene,
+            self.style,
             rect.width() as f64,
             rect.height() as f64,
             &self.model_cache,
@@ -2941,6 +3083,44 @@ impl App {
                 self.walking = true;
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("Style");
+            for (st, label, tip) in [
+                (Style::Coloured, "Coloured", "The room's real colours"),
+                (Style::Clay, "Clay", "Everything in warm grey — good for judging shapes and layout"),
+            ] {
+                if ui
+                    .selectable_label(self.style == st, label)
+                    .on_hover_text(tip)
+                    .clicked()
+                {
+                    self.style = st;
+                }
+            }
+            ui.separator();
+            ui.label("Walls");
+            for (c, label, tip) in [
+                (WallCut::Full, "Full", "Walls at their full height"),
+                (WallCut::Half, "Half", "Walls cut to just over half height, so you can see in"),
+                (WallCut::Low, "Low", "Walls cut low — a dollhouse view of the layout"),
+            ] {
+                if ui
+                    .selectable_label(self.wall_cut == c, label)
+                    .on_hover_text(tip)
+                    .clicked()
+                {
+                    self.wall_cut = c;
+                }
+            }
+            ui.separator();
+            if ui
+                .button("Saved views…")
+                .on_hover_text("Save this camera, lighting, style and wall cut under a name, and jump back to it any time")
+                .clicked()
+            {
+                self.show_views = true;
+            }
+        });
         let rect = ui.available_rect_before_wrap();
         let response = ui.interact(rect, ui.id().with("3d"), Sense::drag());
         if response.dragged() {
@@ -2980,10 +3160,21 @@ impl App {
             let (pts, depth) = face_of(&corners, &pr);
             draws.push((
                 depth,
-                Draw::Fill(pts, rgb(shade_scene(room.floor_rgb, 0.9, self.scene))),
+                Draw::Fill(
+                    pts,
+                    rgb(shade_scene(
+                        style_rgb(room.floor_rgb, self.style),
+                        0.9,
+                        self.scene,
+                    )),
+                ),
             ));
         }
-        let pattern_col = rgb(shade_scene(room.floor_rgb, 0.7, self.scene));
+        let pattern_col = rgb(shade_scene(
+            style_rgb(room.floor_rgb, self.style),
+            0.7,
+            self.scene,
+        ));
         for (a, b) in room.floor_material.pattern_segments(&floor_cells) {
             let (pa, da) = pr((a.0, a.1, 0.0));
             let (pb, db) = pr((b.0, b.1, 0.0));
@@ -2991,7 +3182,9 @@ impl App {
         }
         // Walls: one quad per outline edge, shaded by the direction
         // the wall faces (the outline is CCW, so the outward normal
-        // is to the right of the direction of travel).
+        // is to the right of the direction of travel). The wall cut
+        // (Full/Half/Low) caps the drawn height.
+        let wall_top = self.wall_cut.cut_height(room.height_m);
         for i in 0..outline.len() {
             let a = outline[i];
             let b = outline[(i + 1) % outline.len()];
@@ -3011,13 +3204,20 @@ impl App {
             let quad = [
                 (a.0, a.1, 0.0),
                 (b.0, b.1, 0.0),
-                (b.0, b.1, room.height_m),
-                (a.0, a.1, room.height_m),
+                (b.0, b.1, wall_top),
+                (a.0, a.1, wall_top),
             ];
             let (pts, depth) = face_of(&quad, &pr);
             draws.push((
                 depth,
-                Draw::Fill(pts, rgb(shade_scene(room.wall_rgb, bright, self.scene))),
+                Draw::Fill(
+                    pts,
+                    rgb(shade_scene(
+                        style_rgb(room.wall_rgb, self.style),
+                        bright,
+                        self.scene,
+                    )),
+                ),
             ));
         }
         // Skirting boards along every wall base.
@@ -3027,7 +3227,14 @@ impl App {
             let (pts, depth) = face_of(&roomforge::view3d::skirting_quad(a, b), &pr);
             draws.push((
                 depth,
-                Draw::Fill(pts, rgb(shade_scene(room.wall_rgb, 1.18, self.scene))),
+                Draw::Fill(
+                    pts,
+                    rgb(shade_scene(
+                        style_rgb(room.wall_rgb, self.style),
+                        1.18,
+                        self.scene,
+                    )),
+                ),
             ));
         }
         // Soft shadows under the furniture.
@@ -3036,7 +3243,14 @@ impl App {
                 let (pts, depth) = face_of(&q, &pr);
                 draws.push((
                     depth - 0.04,
-                    Draw::Fill(pts, rgb(shade_scene(room.floor_rgb, 0.55, self.scene))),
+                    Draw::Fill(
+                        pts,
+                        rgb(shade_scene(
+                            style_rgb(room.floor_rgb, self.style),
+                            0.55,
+                            self.scene,
+                        )),
+                    ),
                 ));
             }
         }
@@ -3053,7 +3267,7 @@ impl App {
                         pts.push(pos);
                         depth += d;
                     }
-                    let base = shade_scene(mrgb, bright, self.scene);
+                    let base = shade_scene(style_rgb(mrgb, self.style), bright, self.scene);
                     let col = if self.selected_item == Some(it.id) {
                         // Selected models blush red (boxes redden their
                         // top face; a model has no single top face).
@@ -3081,7 +3295,11 @@ impl App {
                 let col = if self.selected_item == Some(it.id) && bright == 1.0 {
                     RED
                 } else {
-                    rgb(shade_scene(it.rgb, bright, self.scene))
+                    rgb(shade_scene(
+                        style_rgb(it.rgb, self.style),
+                        bright,
+                        self.scene,
+                    ))
                 };
                 draws.push((depth, Draw::Fill(pts, col)));
             }
@@ -3103,12 +3321,13 @@ impl App {
                 }
             }
         }
-        // Windows glow on top of the walls they sit in.
+        // Windows glow on top of the walls they sit in; a wall cut
+        // clips the glass, and hides windows above the cut entirely.
         for o in &self.project.openings {
-            if o.kind != OpeningKind::Window {
+            if o.kind != OpeningKind::Window || o.sill_m >= wall_top {
                 continue;
             }
-            let quad = wall_opening_quad(&self.project, o);
+            let quad = wall_opening_quad(&self.project, o).map(|p| (p.0, p.1, p.2.min(wall_top)));
             let (pts, _) = face_of(&quad, &pr);
             painter.add(Shape::convex_polygon(
                 pts,
