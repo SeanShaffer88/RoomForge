@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-23
+
+### Added
+
+- **Import your own 3D models** (file format v4): "Your 3D
+  models" in the catalogue imports `.glb` (binary glTF) and
+  `.obj` files up to 10 MB. An imported model places like any
+  furniture — footprint, resizing, lists, warnings — and renders
+  with its real geometry and colours in the 3D view, the
+  walkthrough and both snapshot kinds. The 2D plan shows its
+  footprint. Models are stored inside the plan file, so plans
+  stay portable; deleting a model definition makes its placed
+  copies fall back to simple boxes. Supported subset (by design):
+  static meshes with per-part base colours — no animation, skins
+  or textures; very detailed models (over ~500k triangles) are
+  declined with an explanation.
+
 ## [1.1.0] - 2026-10-23
 
 ### Added
