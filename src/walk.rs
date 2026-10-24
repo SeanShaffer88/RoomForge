@@ -198,6 +198,7 @@ pub fn walk_layers(
     scene: Scene,
     width: f64,
     height: f64,
+    models: &std::collections::HashMap<u64, crate::model3d::PreparedModel>,
 ) -> Vec<WalkLayer> {
     let room = &p.room;
     let focal = (height / 2.0) / (FOV_V_DEG / 2.0).to_radians().tan();
@@ -312,6 +313,13 @@ pub fn walk_layers(
         }
     }
     for it in &p.items {
+        if let Some(prep) = crate::model::model_id_of(&it.catalog_id).and_then(|id| models.get(&id))
+        {
+            for (tri, bright, rgb) in crate::view3d::mesh_tris(it, prep) {
+                push_poly(&tri, shade_scene(rgb, bright, scene), 0.0, &mut layers);
+            }
+            continue;
+        }
         let corners = box_corners(it);
         for (idx, bright) in box_faces() {
             let quad = [
@@ -406,12 +414,26 @@ mod tests {
     fn walk_layers_cover_the_room() {
         let p = Project::default();
         let w = Walker::start(&p);
-        let layers = walk_layers(&p, &w, Scene::Day, 900.0, 600.0);
+        let layers = walk_layers(
+            &p,
+            &w,
+            Scene::Day,
+            900.0,
+            600.0,
+            &std::collections::HashMap::new(),
+        );
         assert!(layers.len() >= 5, "floor + ceiling + walls at least");
         // Sorted far to near.
         assert!(layers.windows(2).all(|pair| pair[0].depth >= pair[1].depth));
         // Night differs from day (scene flows through).
-        let night = walk_layers(&p, &w, Scene::Night, 900.0, 600.0);
+        let night = walk_layers(
+            &p,
+            &w,
+            Scene::Night,
+            900.0,
+            600.0,
+            &std::collections::HashMap::new(),
+        );
         let day_col = match &layers[0].cmd {
             WalkCmd::Fill { color, .. } => *color,
             _ => panic!("first layer should be a fill"),
