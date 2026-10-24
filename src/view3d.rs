@@ -4,6 +4,8 @@
 //! axis) and pitch (down from horizontal), plus a simple perspective
 //! divide. Units are metres throughout.
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
     /// Orbit angle around the room, degrees. 0 = looking from the south.
@@ -217,7 +219,7 @@ pub fn shade(rgb: [u8; 3], factor: f64) -> [u8; 3] {
 /// A lighting mood for the 3D view and snapshots. Scenes are global
 /// ambience — an overall brightness, a colour tint, a backdrop and a
 /// window-glass colour — not per-lamp lighting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Scene {
     #[default]
     Day,
@@ -276,6 +278,53 @@ impl Scene {
     }
 }
 
+/// How the 3D views present surfaces: true colours, or a
+/// monochrome "clay" look (every surface a warm grey by its
+/// brightness) for judging shapes and layout without colour noise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Style {
+    #[default]
+    Coloured,
+    Clay,
+}
+
+/// Map a surface colour through a render style.
+pub fn style_rgb(rgb: [u8; 3], style: Style) -> [u8; 3] {
+    match style {
+        Style::Coloured => rgb,
+        Style::Clay => {
+            let l = 0.299 * rgb[0] as f64 + 0.587 * rgb[1] as f64 + 0.114 * rgb[2] as f64;
+            [
+                (l * 1.05).clamp(0.0, 255.0) as u8,
+                l.clamp(0.0, 255.0) as u8,
+                (l * 0.9).clamp(0.0, 255.0) as u8,
+            ]
+        }
+    }
+}
+
+/// How much wall the 3D views draw: the full height, a half-height
+/// cut or a low cut — a simple section view for looking into the
+/// room. Rendering only; the plan itself is untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum WallCut {
+    #[default]
+    Full,
+    Half,
+    Low,
+}
+
+impl WallCut {
+    /// The wall-top height to render for a room of `room_h` metres.
+    pub fn cut_height(self, room_h: f64) -> f64 {
+        match self {
+            WallCut::Full => room_h,
+            WallCut::Half => room_h * 0.55,
+            WallCut::Low => room_h.min(1.05),
+        }
+    }
+}
+
 /// Shade a colour by a face factor and then by the scene's light.
 pub fn shade_scene(rgb: [u8; 3], factor: f64, scene: Scene) -> [u8; 3] {
     let (tr, tg, tb) = scene.tint();
@@ -288,6 +337,27 @@ pub fn shade_scene(rgb: [u8; 3], factor: f64, scene: Scene) -> [u8; 3] {
 mod tests {
     use super::*;
     use crate::model::PlacedItem;
+
+    #[test]
+    fn clay_style_flattens_to_warm_grey() {
+        assert_eq!(style_rgb([10, 200, 90], Style::Coloured), [10, 200, 90]);
+        let clay = style_rgb([255, 0, 0], Style::Clay);
+        // Warm grey: channels close together, red slightly ahead.
+        assert!(clay[0] >= clay[1] && clay[1] >= clay[2], "{clay:?}");
+        assert!(clay[0] - clay[2] < 20, "{clay:?}");
+        assert!((70..=90).contains(&clay[1]), "{clay:?}");
+        // A grey stays the same grey (within the warm tint).
+        let g = style_rgb([128, 128, 128], Style::Clay);
+        assert!((120..=140).contains(&g[1]), "{g:?}");
+    }
+
+    #[test]
+    fn wall_cut_heights() {
+        assert_eq!(WallCut::Full.cut_height(2.6), 2.6);
+        assert!((WallCut::Half.cut_height(2.6) - 1.43).abs() < 1e-9);
+        assert_eq!(WallCut::Low.cut_height(2.6), 1.05);
+        assert_eq!(WallCut::Low.cut_height(0.9), 0.9);
+    }
 
     #[test]
     fn mesh_tris_fit_the_footprint() {
