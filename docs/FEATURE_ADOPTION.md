@@ -88,3 +88,44 @@ open source. These stay front and centre in the README.
    RoomScan): collides with the photo/scan exclusion, and most of it
    needs a phone/cloud anyway. Manual blueprint **tracing** (adopted)
    is the offline, in-scope version of the same job.
+
+## SketchUp Pro deep-dive (2026-10-24)
+
+SEAN directed a focused pass on SketchUp Pro (Trimble's plans page +
+help material, 2026-10-24) as further inspiration for RoomForge.
+SketchUp itself was one of the 15 products in the original survey;
+this is the deeper, feature-by-feature classification. Same rules
+bind: no prices, generic/user-owned content only, fully offline.
+
+**Adopted now (v1.3.0, the presentation pack):**
+
+| SketchUp Pro | RoomForge form |
+|---|---|
+| Scenes — saved views capturing camera, style and section state | **Saved views** stored in the plan: orbit angle/zoom, lighting scene, render style and wall cut, recalled in one click |
+| Styles — one-click visual styles (incl. monochrome/clay looks) | **Clay render style** alongside the normal coloured style, in 3D, walk and snapshots |
+| Section planes / section cuts | **Wall cutaway (Full / Half / Low)** in the 3D views — the dollhouse cut, as a height rather than a freeform plane (RoomForge rooms are single-storey shells) |
+
+**Already had (SketchUp equivalents):** inference snapping →
+alignment guides (v1.0.0); Tape Measure → dimension lines, wall
+clearances, typed lengths; Components → custom items + imported
+models (placed RoomForge items hold their own size rather than
+following a definition — a deliberate difference); Materials →
+procedural finishes (v0.6.0), user image textures already on the
+roadmap; LayOut → print sheet + true-scale SVG (page tiling still
+roadmapped); Outliner → per-room item list (v1.1.0).
+
+**Later:** drawing rooms as free polygons (the floor-plate side of
+Push/Pull — needs general polygon outlines beyond rectilinear
+notches); sun-position shadow studies (their shadows/PreDesign);
+fog; camera-path video; a tags/layers visibility panel; titled
+print layouts with page tiling.
+
+**Not adopted — conflicts with SEAN's standing rules:** 3D
+Warehouse (third-party model library; generic catalog + the user's
+own imports cover the need), Trimble Connect cloud storage and
+collaboration (offline rule), Extension Warehouse / plug-in API
+(scope), SketchUp AI generation and AI render (cloud AI; offline
+rule), Scan Essentials point clouds and Match Photo (scan/photo
+modelling was excluded 2026-10-22), and general-purpose CAD
+modelling (solid booleans, Follow-Me extrusions — geometry
+authoring, not room planning).
