@@ -6,7 +6,9 @@
 
 use crate::geometry::{point_in_polygon, rect_cells};
 use crate::model::{OpeningKind, Project};
-use crate::view3d::{box_corners, box_faces, shade_scene, shadow_quad, skirting_quad, Scene};
+use crate::view3d::{
+    box_corners, box_faces, shade_scene, shadow_quad, skirting_quad, style_rgb, Scene, Style,
+};
 
 /// Where the visitor stands, and where they are looking.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -196,6 +198,7 @@ pub fn walk_layers(
     p: &Project,
     w: &Walker,
     scene: Scene,
+    style: Style,
     width: f64,
     height: f64,
     models: &std::collections::HashMap<u64, crate::model3d::PreparedModel>,
@@ -228,13 +231,13 @@ pub fn walk_layers(
     for &(x1, y1, x2, y2) in &cells {
         push_poly(
             &[(x1, y1, 0.0), (x2, y1, 0.0), (x2, y2, 0.0), (x1, y2, 0.0)],
-            shade_scene(room.floor_rgb, 0.9, scene),
+            shade_scene(style_rgb(room.floor_rgb, style), 0.9, scene),
             0.0,
             &mut layers,
         );
     }
     // Floor pattern lines on the floor, under everything else.
-    let line_color = shade_scene(room.floor_rgb, 0.7, scene);
+    let line_color = shade_scene(style_rgb(room.floor_rgb, style), 0.7, scene);
     for (a, b) in room.floor_material.pattern_segments(&cells) {
         let ca = to_camera(w, (a.0, a.1, 0.0));
         let cb = to_camera(w, (b.0, b.1, 0.0));
@@ -258,7 +261,7 @@ pub fn walk_layers(
             (room.width_m, room.depth_m, room.height_m),
             (0.0, room.depth_m, room.height_m),
         ],
-        shade_scene(room.wall_rgb, 0.55, scene),
+        shade_scene(style_rgb(room.wall_rgb, style), 0.55, scene),
         0.0,
         &mut layers,
     );
@@ -285,7 +288,7 @@ pub fn walk_layers(
                 (b.0, b.1, room.height_m),
                 (a.0, a.1, room.height_m),
             ],
-            shade_scene(room.wall_rgb, bright, scene),
+            shade_scene(style_rgb(room.wall_rgb, style), bright, scene),
             0.0,
             &mut layers,
         );
@@ -296,7 +299,7 @@ pub fn walk_layers(
         let b = outline[(i + 1) % outline.len()];
         push_poly(
             &skirting_quad(a, b),
-            shade_scene(room.wall_rgb, 1.18, scene),
+            shade_scene(style_rgb(room.wall_rgb, style), 1.18, scene),
             0.0,
             &mut layers,
         );
@@ -306,7 +309,7 @@ pub fn walk_layers(
         if let Some(q) = shadow_quad(it) {
             push_poly(
                 &q,
-                shade_scene(room.floor_rgb, 0.55, scene),
+                shade_scene(style_rgb(room.floor_rgb, style), 0.55, scene),
                 0.04,
                 &mut layers,
             );
@@ -316,7 +319,12 @@ pub fn walk_layers(
         if let Some(prep) = crate::model::model_id_of(&it.catalog_id).and_then(|id| models.get(&id))
         {
             for (tri, bright, rgb) in crate::view3d::mesh_tris(it, prep) {
-                push_poly(&tri, shade_scene(rgb, bright, scene), 0.0, &mut layers);
+                push_poly(
+                    &tri,
+                    shade_scene(style_rgb(rgb, style), bright, scene),
+                    0.0,
+                    &mut layers,
+                );
             }
             continue;
         }
@@ -328,7 +336,12 @@ pub fn walk_layers(
                 corners[idx[2]],
                 corners[idx[3]],
             ];
-            push_poly(&quad, shade_scene(it.rgb, bright, scene), 0.0, &mut layers);
+            push_poly(
+                &quad,
+                shade_scene(style_rgb(it.rgb, style), bright, scene),
+                0.0,
+                &mut layers,
+            );
         }
     }
     // Window glass.
@@ -418,6 +431,7 @@ mod tests {
             &p,
             &w,
             Scene::Day,
+            Style::Coloured,
             900.0,
             600.0,
             &std::collections::HashMap::new(),
@@ -430,6 +444,7 @@ mod tests {
             &p,
             &w,
             Scene::Night,
+            Style::Coloured,
             900.0,
             600.0,
             &std::collections::HashMap::new(),
