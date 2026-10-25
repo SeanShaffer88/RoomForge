@@ -239,12 +239,13 @@ pub fn print_html(p: &Project, imperial: bool) -> String {
     let tail = "\n<p>Drawn to scale by RoomForge. Service symbols: E = socket, W = pipe/water, R = radiator, S = light switch, TV = TV point, N = network point, TH = thermostat.</p></body></html>\n";
     if p.room_count() == 1 {
         return format!(
-            "{head}<body><h1>{} — {} × {} (ceiling {})</h1>\n{}{tail}",
+            "{head}<body><h1>{} — {} × {} (ceiling {})</h1>\n{}{}{tail}",
             esc(&p.room.name),
             crate::units::fmt_len(p.room.width_m, imperial),
             crate::units::fmt_len(p.room.depth_m, imperial),
             crate::units::fmt_len(p.room.height_m, imperial),
             room_body(p, p, imperial),
+            designs_html(p, imperial),
         );
     }
     // Multi-room: a section per room, then whole-home totals.
@@ -280,7 +281,40 @@ pub fn print_html(p: &Project, imperial: bool) -> String {
         &totals,
         imperial,
     ));
+    out.push_str(&designs_html(p, imperial));
     out.push_str(tail);
+    out
+}
+
+/// The furniture designs section of the print sheet: one cut-list
+/// table per design (dimensions and quantities only).
+fn designs_html(p: &Project, imperial: bool) -> String {
+    if p.furniture.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("\n<h2>Furniture designs — cut lists</h2>");
+    for d in &p.furniture {
+        out.push_str(&format!(
+            "\n<h3>{} — {} · {} × {} × {} · {:.2} m² of panel</h3>\n<table><tr><th>Part</th><th>Qty</th><th>Length</th><th>Width</th><th>Thickness</th></tr>",
+            esc(&d.name),
+            d.template.label(),
+            crate::units::fmt_len(d.width_m, imperial),
+            crate::units::fmt_len(d.depth_m, imperial),
+            crate::units::fmt_len(d.height_m, imperial),
+            d.board_area_m2(),
+        ));
+        for e in d.cut_list() {
+            out.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                esc(&e.name),
+                e.qty,
+                crate::units::fmt_len(e.length_m, imperial),
+                crate::units::fmt_len(e.width_m, imperial),
+                crate::units::fmt_len(e.thickness_m, imperial),
+            ));
+        }
+        out.push_str("</table>");
+    }
     out
 }
 
@@ -493,5 +527,21 @@ mod tests {
         assert!(!html.contains(" m wide"), "metric size left");
         let svg = plan_svg(&sample(), 100.0, true);
         assert!(svg.contains("ft²"), "imperial svg area missing");
+    }
+
+    #[test]
+    fn print_sheet_includes_design_cut_lists() {
+        let mut p = Project::default();
+        assert!(!print_html(&p, false).contains("Furniture designs"));
+        let mut d = crate::furniture::FurnitureDesign::new(5, crate::furniture::Template::Chest);
+        d.name = "Bedroom chest".into();
+        p.furniture.push(d);
+        let html = print_html(&p, false);
+        assert!(
+            html.contains("Furniture designs — cut lists"),
+            "{html:.200}"
+        );
+        assert!(html.contains("Bedroom chest"));
+        assert!(html.contains("Drawer front"));
     }
 }
