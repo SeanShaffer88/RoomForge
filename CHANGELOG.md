@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-25
+
+The furniture designer release. The room planner gains a full
+furniture configurator (a scope addition made at the owner's
+explicit direction, reversing the original exclusion):
+
+- **The 🪑 Designer** (top bar or press 4): five parametric
+  templates — Closet, Double closet, Chest of drawers, Side
+  table, Bookcase — each computed from real 18 mm panels:
+  carcass, back, plinth, doors on hinges, drawer fronts with
+  boxes behind them, shelves and dividers. Set the overall size,
+  drawer and shelf counts, and a finish (six standards or any
+  colour); a live 3D preview orbits with the mouse and honours
+  the Open doors & drawers toggle and the Exploded view slider.
+- **Cut lists** — every design's panels grouped by size with
+  quantities and the total panel area, shown in the Designer,
+  exportable as CSV, listed in the Item list view, and printed
+  on the print sheet. Dimensions and quantities only — the
+  no-prices rule is unchanged.
+- **Designed pieces live in the plan** (format v7): “Add to room”
+  places a piece that renders as its actual parts — doors,
+  drawers, shelves — in the 3D view, snapshots and the
+  walkthrough, opening with the same toggle. The catalogue gains
+  “Your designs” (place, edit, delete — deleting removes placed
+  pieces), and a placed piece's properties offer “Edit its
+  design…”.
+
 ## [1.4.0] - 2026-10-25
 
 The assembly release: three presentation ideas from a simple
