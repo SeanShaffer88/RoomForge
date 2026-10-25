@@ -330,6 +330,27 @@ pub fn walk_layers(
             }
             continue;
         }
+        // Designed pieces draw as their real parts.
+        if let Some(design) = p.design_for(&it.catalog_id) {
+            let faces =
+                crate::furniture::design_faces(design, if open_fronts { 1.0 } else { 0.0 }, 0.0);
+            let placed = crate::view3d::place_faces(
+                &faces,
+                it,
+                design.width_m,
+                design.depth_m,
+                design.height_m,
+            );
+            for (quad, bright, rgb) in &placed {
+                push_poly(
+                    quad,
+                    shade_scene(style_rgb(*rgb, style), *bright, scene),
+                    0.0,
+                    &mut layers,
+                );
+            }
+            continue;
+        }
         let corners = box_corners(it);
         for (idx, bright) in box_faces() {
             let quad = [
