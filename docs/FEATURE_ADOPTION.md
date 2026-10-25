@@ -154,13 +154,15 @@ translated from one piece of furniture to a whole room:**
 **Already had:** template cards as the starting point (the v1.0.0
 template gallery); Remix ≈ duplicate/rename flows.
 
-**Needs SEAN's call — NOT adopted:** Madera's core is designing one
-piece of furniture from modules and panels — a **modular furniture
-configurator**, the category SEAN excluded on 2026-10-22 (see
-AGENTS.md hard rules). Only SEAN can reverse that; if he does, the
-natural form is an extension of the custom-item builder (parts
-list + assembly), not a change to the room planner's scope. Its
-sign-in/cloud model also conflicts with the offline rule, and
-build-oriented outputs (cut lists, selling prices) belong to that
-configurator class — RoomForge's quantities-only materials list
-remains the planner-side equivalent.
+**Needs SEAN's call — NOT adopted (at the time):** Madera's core
+is designing one piece of furniture from modules and panels — a
+**modular furniture configurator**, the category SEAN excluded on
+2026-10-22 (see AGENTS.md hard rules).
+
+**UPDATE 2026-10-25 — SEAN made the call:** he reversed the
+exclusion ("add the furniture configurator"). v1.5.0 adds the
+Furniture Designer: parametric pieces from panels with finishes
+and options, a dimensions-and-quantities cut list (no prices —
+that rule stands), and placement into rooms as real parts. The
+sign-in/cloud model remains NOT adopted (offline rule), and
+selling-price calculators remain out (no-prices rule).
