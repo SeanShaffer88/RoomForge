@@ -381,6 +381,46 @@ pub fn box_faces() -> [([usize; 4], f64); 6] {
     ]
 }
 
+/// Place piece-space faces (from the furniture designer) onto a
+/// room item: scaled from the design's dimensions onto the item's,
+/// rotated and translated with it. Brightness is carried through —
+/// it is fixed per box face, like the app's ordinary boxes.
+pub fn place_faces(
+    faces: &[FaceQuad],
+    it: &crate::model::PlacedItem,
+    design_w: f64,
+    design_d: f64,
+    design_h: f64,
+) -> Vec<FaceQuad> {
+    let sx = if design_w > 1e-9 {
+        it.width_m / design_w
+    } else {
+        1.0
+    };
+    let sy = if design_d > 1e-9 {
+        it.depth_m / design_d
+    } else {
+        1.0
+    };
+    let sz = if design_h > 1e-9 {
+        it.height_m / design_h
+    } else {
+        1.0
+    };
+    let rad = it.rotation_deg.to_radians();
+    let (s, c) = rad.sin_cos();
+    faces
+        .iter()
+        .map(|(pts, bright, rgb)| {
+            let placed = pts.map(|(x, y, z)| {
+                let (x, y) = (x * sx, y * sy);
+                (it.x_m + x * c - y * s, it.y_m + x * s + y * c, z * sz)
+            });
+            (placed, *bright, *rgb)
+        })
+        .collect()
+}
+
 /// The skirting-board quad for one outline edge: a 9 cm strip
 /// standing just inside the wall line (inset 1.2 cm so it reads as
 /// a separate board against the wall).
