@@ -19,8 +19,11 @@ plan and the item list. MIT. **No prices, anywhere — ever** (see below).
   introduces a price field or a total, stop and flag it.
 - **Generic catalogue only.** Furniture is original and generic — no
   third-party product names, models, photos or data.
-- **Room planner only.** No modular product configurators and no
-  photo/scan-based design; both were excluded by SEAN on 2026-10-22.
+- **Scope.** A room planner plus (since SEAN's explicit reversal
+  on 2026-10-25) a furniture configurator: parametric pieces built
+  from panels, with a cut list of dimensions and quantities.
+  Photo/scan-based design remains excluded (SEAN, 2026-10-22),
+  and the no-prices rule above is untouched by the reversal.
 - **Never claim Windows runtime is verified** until the build has
   actually been run on SEAN's Windows machine and he (or his log)
   confirms it. Passing local tests, CI, or a Wine run is *not* Windows
