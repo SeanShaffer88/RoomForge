@@ -136,8 +136,6 @@ pub fn mesh_tris(
     } else {
         it.width_m
     };
-    // Fixed light, roughly from the south-west above (length ≈ 1).
-    let l = (-0.35, -0.5, 0.79);
     let mut out = Vec::new();
     for mesh in &prep.meshes {
         for tri in &mesh.tris {
@@ -150,21 +148,226 @@ pub fn mesh_tris(
                     p[2] as f64 * sz,
                 )
             });
-            let (a, b, cc) = (w[0], w[1], w[2]);
-            let u = (b.0 - a.0, b.1 - a.1, b.2 - a.2);
-            let vv = (cc.0 - a.0, cc.1 - a.1, cc.2 - a.2);
-            let n = (
-                u.1 * vv.2 - u.2 * vv.1,
-                u.2 * vv.0 - u.0 * vv.2,
-                u.0 * vv.1 - u.1 * vv.0,
-            );
-            let len = (n.0 * n.0 + n.1 * n.1 + n.2 * n.2).sqrt().max(1e-12);
-            let d = ((n.0 / len) * l.0 + (n.1 / len) * l.1 + (n.2 / len) * l.2).abs();
-            let bright = (0.5f64 + 0.55 * d).clamp(0.3, 1.0);
+            let bright = face_bright(w[0], w[1], w[2]);
             out.push((w, bright, mesh.rgb));
         }
     }
     out
+}
+
+/// Brightness of a face from its normal, under the renderers'
+/// fixed light (roughly from the south-west above). Double-sided:
+/// a face lit from behind still reads.
+pub fn face_bright(a: (f64, f64, f64), b: (f64, f64, f64), c: (f64, f64, f64)) -> f64 {
+    let l = (-0.35, -0.5, 0.79);
+    let u = (b.0 - a.0, b.1 - a.1, b.2 - a.2);
+    let v = (c.0 - a.0, c.1 - a.1, c.2 - a.2);
+    let n = (
+        u.1 * v.2 - u.2 * v.1,
+        u.2 * v.0 - u.0 * v.2,
+        u.0 * v.1 - u.1 * v.0,
+    );
+    let len = (n.0 * n.0 + n.1 * n.1 + n.2 * n.2).sqrt().max(1e-12);
+    let d = ((n.0 / len) * l.0 + (n.1 / len) * l.1 + (n.2 / len) * l.2).abs();
+    (0.5f64 + 0.55 * d).clamp(0.3, 1.0)
+}
+
+/// How a furniture front panel moves when it opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontKind {
+    /// Door hinged on its left edge (swings out).
+    DoorLeft,
+    /// Door hinged on its right edge.
+    DoorRight,
+    /// Door hinged on its bottom edge (oven, dishwasher — drops down).
+    DoorBottom,
+    /// Drawer front (slides straight out).
+    Drawer,
+}
+
+/// One front panel of a furniture piece, in item space: `u` runs
+/// 0..1 across the width, `z` is metres from the floor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrontPanel {
+    pub u0: f64,
+    pub u1: f64,
+    pub z0: f64,
+    pub z1: f64,
+    pub kind: FrontKind,
+}
+
+/// The front panels a catalog piece has (wardrobe doors, chest
+/// drawers, an oven's drop-down door…). Keyed by catalog id;
+/// anything else — sofas, tables, shelves, custom and imported
+/// pieces — has none. The front of a piece faces local +y (south
+/// when unrotated), the same side the 2D glyphs draw as the front.
+pub fn front_panels(it: &crate::model::PlacedItem) -> Vec<FrontPanel> {
+    let h = it.height_m;
+    let door = |u0: f64, u1: f64, kind: FrontKind| FrontPanel {
+        u0,
+        u1,
+        z0: 0.02,
+        z1: (h - 0.02).max(0.05),
+        kind,
+    };
+    match it.catalog_id.as_str() {
+        "wardrobe-2" | "sideboard" | "tv-bench" | "shoe-cabinet" | "sink-unit" => vec![
+            door(0.01, 0.5, FrontKind::DoorLeft),
+            door(0.5, 0.99, FrontKind::DoorRight),
+        ],
+        "wardrobe-3" => vec![
+            door(0.01, 0.34, FrontKind::DoorLeft),
+            door(0.34, 0.67, FrontKind::DoorLeft),
+            door(0.67, 0.99, FrontKind::DoorRight),
+        ],
+        "base-cabinet-60" => vec![door(0.01, 0.99, FrontKind::DoorLeft)],
+        "fridge" => vec![door(0.01, 0.99, FrontKind::DoorRight)],
+        "dishwasher" => vec![door(0.01, 0.99, FrontKind::DoorBottom)],
+        "cooker" => vec![FrontPanel {
+            u0: 0.01,
+            u1: 0.99,
+            z0: 0.05,
+            z1: h * 0.8,
+            kind: FrontKind::DoorBottom,
+        }],
+        "chest-4" => (0..4)
+            .map(|i| {
+                let band = h / 4.0;
+                FrontPanel {
+                    u0: 0.03,
+                    u1: 0.97,
+                    z0: i as f64 * band + 0.012,
+                    z1: (i + 1) as f64 * band - 0.012,
+                    kind: FrontKind::Drawer,
+                }
+            })
+            .collect(),
+        "bedside-table" => vec![FrontPanel {
+            u0: 0.05,
+            u1: 0.95,
+            z0: h * 0.45,
+            z1: (h - 0.03).max(h * 0.5),
+            kind: FrontKind::Drawer,
+        }],
+        _ => Vec::new(),
+    }
+}
+
+/// A furniture face quad with its brightness and base colour,
+/// ready for any of the renderers.
+pub type FaceQuad = ([(f64, f64, f64); 4], f64, [u8; 3]);
+
+/// The world-space quads of an item's front panels, with `open`
+/// from 0 (closed) to 1 (fully open). Closed panels sit a hair
+/// proud of the front face, so pieces read as having doors and
+/// drawers even when shut.
+pub fn front_quads(it: &crate::model::PlacedItem, open: f64) -> Vec<FaceQuad> {
+    let open = open.clamp(0.0, 1.0);
+    let rad = it.rotation_deg.to_radians();
+    let (s, c) = rad.sin_cos();
+    let w = it.width_m;
+    let front_y = it.depth_m / 2.0 + 0.012;
+    let rgb = [
+        (it.rgb[0] as f64 * 0.85) as u8,
+        (it.rgb[1] as f64 * 0.85) as u8,
+        (it.rgb[2] as f64 * 0.85) as u8,
+    ];
+    let mut out = Vec::new();
+    for p in front_panels(it) {
+        // Panel corners in local (lx, ly, z), before the opening
+        // motion: (u0,z0), (u1,z0), (u1,z1), (u0,z1) on the front plane.
+        let lx = |u: f64| (u - 0.5) * w;
+        let corners = [
+            (lx(p.u0), front_y, p.z0),
+            (lx(p.u1), front_y, p.z0),
+            (lx(p.u1), front_y, p.z1),
+            (lx(p.u0), front_y, p.z1),
+        ];
+        let moved: Vec<(f64, f64, f64)> = corners
+            .iter()
+            .map(|&(x, y, z)| match p.kind {
+                FrontKind::Drawer => (x, y + open * (it.depth_m * 0.7).min(0.32), z),
+                FrontKind::DoorLeft | FrontKind::DoorRight => {
+                    // Swing around the hinge's vertical line.
+                    let hx = if p.kind == FrontKind::DoorLeft {
+                        lx(p.u0)
+                    } else {
+                        lx(p.u1)
+                    };
+                    let a = if p.kind == FrontKind::DoorLeft {
+                        open * 100.0f64.to_radians()
+                    } else {
+                        -open * 100.0f64.to_radians()
+                    };
+                    let (rx, ry) = (x - hx, y - front_y);
+                    (
+                        hx + rx * a.cos() - ry * a.sin(),
+                        front_y + rx * a.sin() + ry * a.cos(),
+                        z,
+                    )
+                }
+                FrontKind::DoorBottom => {
+                    // Drop around the bottom edge's horizontal line,
+                    // which sits on the front plane at z0.
+                    let b = open * 75.0f64.to_radians();
+                    let (dy, rz) = (y - front_y, z - p.z0);
+                    (
+                        x,
+                        front_y + dy * b.cos() + rz * b.sin(),
+                        p.z0 - dy * b.sin() + rz * b.cos(),
+                    )
+                }
+            })
+            .collect();
+        let world = [
+            (
+                it.x_m + moved[0].0 * c - moved[0].1 * s,
+                it.y_m + moved[0].0 * s + moved[0].1 * c,
+                moved[0].2,
+            ),
+            (
+                it.x_m + moved[1].0 * c - moved[1].1 * s,
+                it.y_m + moved[1].0 * s + moved[1].1 * c,
+                moved[1].2,
+            ),
+            (
+                it.x_m + moved[2].0 * c - moved[2].1 * s,
+                it.y_m + moved[2].0 * s + moved[2].1 * c,
+                moved[2].2,
+            ),
+            (
+                it.x_m + moved[3].0 * c - moved[3].1 * s,
+                it.y_m + moved[3].0 * s + moved[3].1 * c,
+                moved[3].2,
+            ),
+        ];
+        let bright = face_bright(world[0], world[1], world[2]);
+        out.push((world, bright, rgb));
+    }
+    out
+}
+
+/// A copy of the item shifted away from the room centre for the
+/// exploded view (`amount` 0..1). Pieces near the centre barely
+/// move; the shift is capped so nothing leaves the room by much.
+pub fn exploded(
+    it: &crate::model::PlacedItem,
+    centre: (f64, f64),
+    amount: f64,
+) -> crate::model::PlacedItem {
+    let mut c = it.clone();
+    if amount <= 0.0 {
+        return c;
+    }
+    let (dx, dy) = (it.x_m - centre.0, it.y_m - centre.1);
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist < 0.05 {
+        return c;
+    }
+    let shift = (amount * 0.55 * dist).min(1.1);
+    c.x_m += dx / dist * shift;
+    c.y_m += dy / dist * shift;
+    c
 }
 
 pub fn box_faces() -> [([usize; 4], f64); 6] {
@@ -286,6 +489,9 @@ pub enum Style {
     #[default]
     Coloured,
     Clay,
+    /// Technical-drawing look: pale paper surfaces (edges are
+    /// drawn dark by the renderers).
+    Outline,
 }
 
 /// Map a surface colour through a render style.
@@ -298,6 +504,15 @@ pub fn style_rgb(rgb: [u8; 3], style: Style) -> [u8; 3] {
                 (l * 1.05).clamp(0.0, 255.0) as u8,
                 l.clamp(0.0, 255.0) as u8,
                 (l * 0.9).clamp(0.0, 255.0) as u8,
+            ]
+        }
+        Style::Outline => {
+            let l = 0.299 * rgb[0] as f64 + 0.587 * rgb[1] as f64 + 0.114 * rgb[2] as f64;
+            let p = 206.0 + l * 0.17;
+            [
+                (p * 1.02).clamp(0.0, 250.0) as u8,
+                p.clamp(0.0, 250.0) as u8,
+                (p * 0.97).clamp(0.0, 250.0) as u8,
             ]
         }
     }
@@ -357,6 +572,93 @@ mod tests {
         assert!((WallCut::Half.cut_height(2.6) - 1.43).abs() < 1e-9);
         assert_eq!(WallCut::Low.cut_height(2.6), 1.05);
         assert_eq!(WallCut::Low.cut_height(0.9), 0.9);
+    }
+
+    fn placed(catalog_id: &str, x: f64, y: f64, h: f64) -> PlacedItem {
+        PlacedItem {
+            id: 1,
+            catalog_id: catalog_id.into(),
+            name: "T".into(),
+            category: "Storage".into(),
+            x_m: x,
+            y_m: y,
+            width_m: 1.2,
+            depth_m: 0.6,
+            height_m: h,
+            rotation_deg: 0.0,
+            rgb: [100, 100, 100],
+        }
+    }
+
+    #[test]
+    fn fronts_by_kind() {
+        let w = placed("wardrobe-2", 2.0, 2.0, 2.0);
+        let ps = front_panels(&w);
+        assert_eq!(ps.len(), 2);
+        assert_eq!(ps[0].kind, FrontKind::DoorLeft);
+        assert_eq!(ps[1].kind, FrontKind::DoorRight);
+        let chest = placed("chest-4", 2.0, 2.0, 1.2);
+        let ps = front_panels(&chest);
+        assert_eq!(ps.len(), 4);
+        assert!(ps.iter().all(|p| p.kind == FrontKind::Drawer));
+        assert!(front_panels(&placed("bookcase", 2.0, 2.0, 1.8)).is_empty());
+        assert!(front_panels(&placed("custom-9", 2.0, 2.0, 1.0)).is_empty());
+    }
+
+    #[test]
+    fn closed_fronts_flush_open_ones_move() {
+        let w = placed("wardrobe-2", 2.0, 2.0, 2.0);
+        let closed = front_quads(&w, 0.0);
+        assert_eq!(closed.len(), 2);
+        // Closed: every point on the front plane (y = 2 + 0.3 + 0.012).
+        for (quad, _, _) in &closed {
+            for pt in quad {
+                assert!((pt.1 - 2.312).abs() < 1e-9, "{pt:?}");
+            }
+        }
+        // Open: the doors swing out toward +y.
+        let open = front_quads(&w, 1.0);
+        let max_y = open
+            .iter()
+            .flat_map(|(q, _, _)| q.iter().map(|p| p.1))
+            .fold(f64::MIN, f64::max);
+        assert!(max_y > 2.7, "doors swing out (max y {max_y})");
+        // Drawers slide straight out by the capped travel.
+        let chest = placed("chest-4", 2.0, 2.0, 1.2);
+        let c0 = front_quads(&chest, 0.0)[0].0[0].1;
+        let c1 = front_quads(&chest, 1.0)[0].0[0].1;
+        assert!((c1 - c0 - 0.32).abs() < 1e-9, "drawer travel {c0} -> {c1}");
+        // The oven door drops: its top edge ends lower than it started.
+        let cooker = placed("cooker", 2.0, 2.0, 0.9);
+        let top_closed = front_quads(&cooker, 0.0)[0].0[2].2;
+        let top_open = front_quads(&cooker, 1.0)[0].0[2].2;
+        assert!(
+            top_open < top_closed - 0.2,
+            "oven door drops {top_closed} -> {top_open}"
+        );
+    }
+
+    #[test]
+    fn exploded_view_shifts_outward() {
+        let it = placed("wardrobe-2", 4.5, 3.5, 2.0);
+        let still = exploded(&it, (2.5, 2.0), 0.0);
+        assert_eq!((still.x_m, still.y_m), (4.5, 3.5));
+        let out = exploded(&it, (2.5, 2.0), 1.0);
+        assert!((out.x_m - 5.38).abs() < 1e-9, "{}", out.x_m);
+        assert!((out.y_m - 4.16).abs() < 1e-9, "{}", out.y_m);
+        let centre = placed("wardrobe-2", 2.5, 2.0, 2.0);
+        let c = exploded(&centre, (2.5, 2.0), 1.0);
+        assert_eq!((c.x_m, c.y_m), (2.5, 2.0));
+    }
+
+    #[test]
+    fn outline_style_is_paper() {
+        for rgb in [[10, 10, 10], [250, 250, 250], [200, 30, 30]] {
+            let o = style_rgb(rgb, Style::Outline);
+            assert!(o.iter().all(|&ch| ch >= 195), "{o:?}");
+            let spread = *o.iter().max().unwrap() - *o.iter().min().unwrap();
+            assert!(spread < 16, "{o:?}");
+        }
     }
 
     #[test]
