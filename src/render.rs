@@ -52,10 +52,21 @@ pub fn prepared_models(
 }
 
 pub fn render_snapshot_scene(p: &Project, width: u32, height: u32, scene: Scene) -> RgbImage {
-    render_snapshot_full(p, width, height, scene, Style::Coloured, WallCut::Full)
+    render_snapshot_full(
+        p,
+        width,
+        height,
+        scene,
+        Style::Coloured,
+        WallCut::Full,
+        false,
+        0.0,
+    )
 }
 
-/// The snapshot with a render style and a wall cut applied.
+/// The snapshot with a render style, a wall cut, optional open
+/// doors/drawers and an exploded-view amount applied.
+#[allow(clippy::too_many_arguments)]
 pub fn render_snapshot_full(
     p: &Project,
     width: u32,
@@ -63,6 +74,8 @@ pub fn render_snapshot_full(
     scene: Scene,
     style: Style,
     cut: WallCut,
+    open_fronts: bool,
+    explode: f64,
 ) -> RgbImage {
     let mut img = RgbImage::from_pixel(width, height, Rgb(scene.background()));
     if width == 0 || height == 0 {
@@ -89,6 +102,16 @@ pub fn render_snapshot_full(
         quad: &[(f64, f64, f64); 4],
         color: [u8; 3],
     ) {
+        push_quad_edged(layers, pr, quad, color, false);
+    }
+
+    fn push_quad_edged(
+        layers: &mut Vec<Layered>,
+        pr: &Projector<'_>,
+        quad: &[(f64, f64, f64); 4],
+        color: [u8; 3],
+        edges: bool,
+    ) {
         let mut pts = Vec::with_capacity(4);
         let mut depth = 0.0;
         for &pt in quad {
@@ -96,10 +119,28 @@ pub fn render_snapshot_full(
             pts.push(s);
             depth += d;
         }
+        let depth = depth / 4.0;
         layers.push(Layered {
-            depth: depth / 4.0,
-            cmd: Cmd::Fill { pts, color },
+            depth,
+            cmd: Cmd::Fill {
+                pts: pts.clone(),
+                color,
+            },
         });
+        if edges {
+            // Technical-drawing look: a dark line on every edge,
+            // biased a hair nearer so it paints over its own fill.
+            for i in 0..4 {
+                layers.push(Layered {
+                    depth: depth - 0.015,
+                    cmd: Cmd::Line {
+                        a: pts[i],
+                        b: pts[(i + 1) % 4],
+                        color: [52, 50, 48],
+                    },
+                });
+            }
+        }
     }
 
     // A quad pushed with an artificial depth bias, for flat floor
@@ -126,17 +167,23 @@ pub fn render_snapshot_full(
     let wall_rgb = style_rgb(room.wall_rgb, style);
     // Floor cells.
     for &(x1, y1, x2, y2) in &cells {
-        push_quad(
+        push_quad_edged(
             &mut layers,
             &pr,
             &[(x1, y1, 0.0), (x2, y1, 0.0), (x2, y2, 0.0), (x1, y2, 0.0)],
             shade_scene(floor_rgb, 0.9, scene),
+            style == Style::Outline,
         );
     }
     // Floor pattern lines, biased a hair nearer than the floor itself
     // so they paint over it but stay under furniture.
     let line_color = shade_scene(floor_rgb, 0.7, scene);
-    for (a, b) in room.floor_material.pattern_segments(&cells) {
+    let pattern_segs = if style == Style::Outline {
+        Vec::new()
+    } else {
+        room.floor_material.pattern_segments(&cells)
+    };
+    for (a, b) in pattern_segs {
         let (sa, da) = pr((a.0, a.1, 0.0));
         let (sb, db) = pr((b.0, b.1, 0.0));
         layers.push(Layered {
@@ -165,7 +212,7 @@ pub fn render_snapshot_full(
         } else {
             0.85
         };
-        push_quad(
+        push_quad_edged(
             &mut layers,
             &pr,
             &[
@@ -175,6 +222,7 @@ pub fn render_snapshot_full(
                 (a.0, a.1, top),
             ],
             shade_scene(wall_rgb, bright, scene),
+            style == Style::Outline,
         );
     }
     // Skirting boards along every wall base.
@@ -190,6 +238,7 @@ pub fn render_snapshot_full(
     }
     // Soft shadows under the furniture (over floor and pattern).
     for it in &p.items {
+        let it = &crate::view3d::exploded(it, centre, explode);
         if let Some(q) = shadow_quad(it) {
             push_biased(
                 &mut layers,
@@ -200,17 +249,21 @@ pub fn render_snapshot_full(
             );
         }
     }
-    // Furniture: imported models as real geometry, the rest boxes.
+    // Furniture: imported models as real geometry, the rest boxes
+    // with front panels. The exploded view shifts every piece
+    // (and its shadow, above) away from the room centre.
     let models = prepared_models(p);
     for it in &p.items {
+        let it = &crate::view3d::exploded(it, centre, explode);
         if let Some(prep) = crate::model::model_id_of(&it.catalog_id).and_then(|id| models.get(&id))
         {
             for (tri, bright, rgb) in crate::view3d::mesh_tris(it, prep) {
-                push_quad(
+                push_quad_edged(
                     &mut layers,
                     &pr,
                     &[tri[0], tri[1], tri[2], tri[2]],
                     shade_scene(style_rgb(rgb, style), bright, scene),
+                    style == Style::Outline,
                 );
             }
             continue;
@@ -223,11 +276,24 @@ pub fn render_snapshot_full(
                 corners[idx[2]],
                 corners[idx[3]],
             ];
-            push_quad(
+            push_quad_edged(
                 &mut layers,
                 &pr,
                 &quad,
                 shade_scene(style_rgb(it.rgb, style), bright, scene),
+                style == Style::Outline,
+            );
+        }
+        // Front panels (doors, drawers), open or closed.
+        for (quad, bright, rgb) in
+            crate::view3d::front_quads(it, if open_fronts { 1.0 } else { 0.0 })
+        {
+            push_quad_edged(
+                &mut layers,
+                &pr,
+                &quad,
+                shade_scene(style_rgb(rgb, style), bright, scene),
+                style == Style::Outline,
             );
         }
     }
@@ -331,6 +397,7 @@ pub fn render_walk(
     w: &crate::walk::Walker,
     scene: Scene,
     style: Style,
+    open_fronts: bool,
     width: u32,
     height: u32,
 ) -> RgbImage {
@@ -339,8 +406,16 @@ pub fn render_walk(
         return img;
     }
     let models = prepared_models(p);
-    for layer in crate::walk::walk_layers(p, w, scene, style, width as f64, height as f64, &models)
-    {
+    for layer in crate::walk::walk_layers(
+        p,
+        w,
+        scene,
+        style,
+        open_fronts,
+        width as f64,
+        height as f64,
+        &models,
+    ) {
         match layer.cmd {
             crate::walk::WalkCmd::Fill { pts, color } => fill_polygon(&mut img, &pts, color),
             crate::walk::WalkCmd::Line { a, b, color } => draw_line(&mut img, a, b, color),
@@ -449,6 +524,71 @@ mod tests {
     }
 
     #[test]
+    fn open_fronts_and_explode_change_the_snapshot() {
+        let mut p = Project::default();
+        for (id, x, y) in [("wardrobe-2", 1.2, 1.0), ("chest-4", 3.8, 3.0)] {
+            let iid = p.alloc_id();
+            p.items.push(crate::model::PlacedItem {
+                id: iid,
+                catalog_id: id.into(),
+                name: id.into(),
+                category: "Storage".into(),
+                x_m: x,
+                y_m: y,
+                width_m: 1.2,
+                depth_m: 0.6,
+                height_m: 2.0,
+                rotation_deg: 0.0,
+                rgb: [120, 90, 60],
+            });
+        }
+        let diffs = |a: &RgbImage, b: &RgbImage| {
+            a.pixels()
+                .zip(b.pixels())
+                .filter(|(x, y)| x.0 != y.0)
+                .count()
+        };
+        let closed = render_snapshot_full(
+            &p,
+            320,
+            200,
+            Scene::Day,
+            Style::Coloured,
+            WallCut::Full,
+            false,
+            0.0,
+        );
+        let open = render_snapshot_full(
+            &p,
+            320,
+            200,
+            Scene::Day,
+            Style::Coloured,
+            WallCut::Full,
+            true,
+            0.0,
+        );
+        assert!(
+            diffs(&closed, &open) > 100,
+            "open fronts change the picture"
+        );
+        let boom = render_snapshot_full(
+            &p,
+            320,
+            200,
+            Scene::Day,
+            Style::Coloured,
+            WallCut::Full,
+            false,
+            1.0,
+        );
+        assert!(
+            diffs(&closed, &boom) > 500,
+            "exploded view moves the furniture"
+        );
+    }
+
+    #[test]
     fn styled_and_cut_snapshots_differ() {
         // Strongly coloured room, so clay's greying is measurable.
         let mut p = Project::default();
@@ -464,16 +604,42 @@ mod tests {
                 .count();
             grey as f64 / (img.width() * img.height()) as f64
         };
-        let coloured =
-            render_snapshot_full(&p, 320, 200, Scene::Day, Style::Coloured, WallCut::Full);
-        let clay = render_snapshot_full(&p, 320, 200, Scene::Day, Style::Clay, WallCut::Full);
+        let coloured = render_snapshot_full(
+            &p,
+            320,
+            200,
+            Scene::Day,
+            Style::Coloured,
+            WallCut::Full,
+            false,
+            0.0,
+        );
+        let clay = render_snapshot_full(
+            &p,
+            320,
+            200,
+            Scene::Day,
+            Style::Clay,
+            WallCut::Full,
+            false,
+            0.0,
+        );
         assert!(
             grey_frac(&clay) > grey_frac(&coloured) + 0.15,
             "clay should be much greyer: clay {:.2} vs coloured {:.2}",
             grey_frac(&clay),
             grey_frac(&coloured)
         );
-        let low = render_snapshot_full(&p, 320, 200, Scene::Day, Style::Coloured, WallCut::Low);
+        let low = render_snapshot_full(
+            &p,
+            320,
+            200,
+            Scene::Day,
+            Style::Coloured,
+            WallCut::Low,
+            false,
+            0.0,
+        );
         let diff = coloured
             .pixels()
             .zip(low.pixels())
@@ -489,14 +655,14 @@ mod tests {
     fn walk_render_shows_the_room_from_inside() {
         let p = Project::default();
         let w = crate::walk::Walker::start(&p);
-        let img = render_walk(&p, &w, Scene::Day, Style::Coloured, 320, 200);
+        let img = render_walk(&p, &w, Scene::Day, Style::Coloured, false, 320, 200);
         // Standing inside, the room fills essentially the whole frame.
         let non_bg = img
             .pixels()
             .filter(|px| px.0 != Scene::Day.background())
             .count();
         assert!(non_bg > 30_000, "only {non_bg} room pixels from inside");
-        let night = render_walk(&p, &w, Scene::Night, Style::Coloured, 320, 200);
+        let night = render_walk(&p, &w, Scene::Night, Style::Coloured, false, 320, 200);
         assert!(night.as_raw() != img.as_raw());
     }
 
