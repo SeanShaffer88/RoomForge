@@ -3,6 +3,35 @@
 A running log of significant decisions for RoomForge: what was decided,
 why, and what it means. Newest entries first within each date.
 
+## 2026-10-25
+
+### Assembly presentation: front panels, exploded view, outline style (v1.4.0, format v6)
+
+- **Decision:** A Madera inspiration pass (see
+  docs/FEATURE_ADOPTION.md, 2026-10-25 section) adopted its three
+  viewer ideas at room scale. Furniture fronts are library data
+  (`view3d::front_panels`, keyed by catalog id — Storage and
+  Kitchen pieces only) and pure geometry (`front_quads` with an
+  open amount; doors rotate about their hinge edge, drawers
+  translate, oven/dishwasher fronts rotate about the bottom
+  edge). The exploded view is a pure item transform
+  (`view3d::exploded`) applied by the orbit and snapshot
+  renderers — never stored, and the walkthrough ignores it
+  because the viewer stands inside the room. The Outline style is
+  a third `style_rgb` mapping plus dark edges: edge lines in the
+  snapshot rasterizer, a stronger stroke in the live view.
+- **Why:** "Can I see inside the wardrobe / how the pieces
+  relate / a clean drawing of this" are presentation questions a
+  planner should answer; none of them change the plan model
+  itself, so all three are render-time state. Saved views grew
+  two defaulted fields to capture them (format v6).
+- **Consequences:** Front panels exist only for the catalog
+  pieces listed in `front_panels`; fronts face local +y, matching
+  the 2D glyphs' notion of a piece's front. Madera's core — a
+  modular furniture configurator — remains excluded per the
+  2026-10-22 scope decision and is recorded under "Needs SEAN's
+  call" in the adoption doc, not adopted silently.
+
 ## 2026-10-24
 
 ### Presentation state: saved views, clay style, wall cut (v1.3.0, format v5)
