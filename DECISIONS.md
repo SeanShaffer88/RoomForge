@@ -5,6 +5,30 @@ why, and what it means. Newest entries first within each date.
 
 ## 2026-10-25
 
+### SCOPE REVERSAL: the furniture configurator is IN (v1.5.0)
+
+- **Decision:** SEAN explicitly reversed his 2026-10-22 exclusion
+  of modular product configurators: *"add the furniture
+  configurator — program should be able to replicate as many
+  features as possible from similar software and SketchUp Pro and
+  Madera."* RoomForge gains a furniture designer: parametric
+  pieces (closet, double closet, chest of drawers, side table,
+  bookcase) built from panels/parts with finishes, dimensions and
+  drawer/shelf options; a parts/cut list (dimensions and
+  quantities only); and placement into rooms, where a designed
+  piece renders as its real parts — doors and drawers included —
+  in every 3D view.
+- **What did NOT change:** no prices, anywhere, ever (the cut list
+  carries dimensions and quantities, never money — the
+  selling-price side of builder tools stays out); generic
+  original designs only; photo/scan-based design remains
+  excluded; fully offline.
+- **Consequences:** repo AGENTS.md's scope rule is amended to
+  match. The designer is a view of its own plus plan-stored
+  designs (`Project.furniture`, format v7); parts are computed
+  deterministically from the design's parameters, never stored,
+  so a design can never disagree with its own parts list.
+
 ### Assembly presentation: front panels, exploded view, outline style (v1.4.0, format v6)
 
 - **Decision:** A Madera inspiration pass (see
