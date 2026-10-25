@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-25
+
+The assembly release: three presentation ideas from a simple
+furniture builder, translated from one piece of furniture to a
+whole room.
+
+### Added
+
+- **Front panels that open**: wardrobes, sideboards, TV benches,
+  shoe cabinets and sink units have doors; chests of drawers and
+  bedside tables have drawers; the cooker and dishwasher fronts
+  drop down. Panels show (slightly darker) even when shut, and
+  the new **Open doors & drawers** toggle in the 3D view and the
+  walkthrough swings and slides them open. Closed or open, they
+  appear in PNG snapshots too. Custom and imported pieces keep
+  their own shapes and gain no panels.
+- **Exploded view**: a slider beside the toggle pushes every
+  piece of furniture away from the room's centre, so a layout
+  reads at a glance. Snapshots honour it; the walkthrough (where
+  you are inside the room) does not.
+- **Outline style**: a third render style beside Coloured and
+  Clay — pale paper surfaces with dark edges, the
+  technical-drawing look, in the 3D view, the walkthrough and
+  snapshots.
+- Saved views now also remember the exploded amount and whether
+  doors and drawers were open (file format v6; v5 views load
+  with both off).
+
 ## [1.3.0] - 2026-10-24
 
 The presentation release: three ideas borrowed from professional
