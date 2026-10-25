@@ -268,6 +268,28 @@ pub fn render_snapshot_full(
             }
             continue;
         }
+        // Designed pieces draw as their real parts.
+        if let Some(design) = p.design_for(&it.catalog_id) {
+            let faces =
+                crate::furniture::design_faces(design, if open_fronts { 1.0 } else { 0.0 }, 0.0);
+            let placed = crate::view3d::place_faces(
+                &faces,
+                it,
+                design.width_m,
+                design.depth_m,
+                design.height_m,
+            );
+            for (quad, bright, rgb) in &placed {
+                push_quad_edged(
+                    &mut layers,
+                    &pr,
+                    quad,
+                    shade_scene(style_rgb(*rgb, style), *bright, scene),
+                    style == Style::Outline,
+                );
+            }
+            continue;
+        }
         let corners = box_corners(it);
         for (idx, bright) in box_faces() {
             let quad = [
@@ -674,5 +696,59 @@ mod tests {
         p.room.floor_rgb = FloorMaterial::CeramicTile.base_rgb().unwrap();
         let tiled = render_snapshot(&p, 320, 200);
         assert!(plain.as_raw() != tiled.as_raw());
+    }
+
+    #[test]
+    fn designed_piece_opens_in_snapshot() {
+        let mut p = Project::default();
+        let id = p.alloc_id();
+        p.furniture.push(crate::furniture::FurnitureDesign::new(
+            id,
+            crate::furniture::Template::Closet,
+        ));
+        let item_id = p.alloc_id();
+        p.items.push(crate::model::PlacedItem {
+            id: item_id,
+            catalog_id: format!("furn-{id}"),
+            name: "Closet".into(),
+            category: "Storage".into(),
+            x_m: 2.5,
+            y_m: 2.0,
+            width_m: 1.2,
+            depth_m: 0.6,
+            height_m: 2.1,
+            rotation_deg: 0.0,
+            rgb: [176, 141, 102],
+        });
+        let closed = render_snapshot_full(
+            &p,
+            640,
+            400,
+            Scene::Day,
+            Style::Coloured,
+            WallCut::Full,
+            false,
+            0.0,
+        );
+        let open = render_snapshot_full(
+            &p,
+            640,
+            400,
+            Scene::Day,
+            Style::Coloured,
+            WallCut::Full,
+            true,
+            0.0,
+        );
+        let diff = closed
+            .as_raw()
+            .iter()
+            .zip(open.as_raw().iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert!(
+            diff > 100,
+            "opening a designed closet changes the render ({diff})"
+        );
     }
 }
