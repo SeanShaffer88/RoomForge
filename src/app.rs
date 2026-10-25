@@ -93,6 +93,8 @@ pub struct App {
     wall_cut: WallCut,
     show_views: bool,
     view_name: String,
+    open_fronts: bool,
+    explode: f64,
     walking: bool,
     walker: Walker,
     // Room-shape (notch) form state.
@@ -352,6 +354,8 @@ impl App {
             wall_cut: WallCut::Full,
             show_views: false,
             view_name: String::new(),
+            open_fronts: false,
+            explode: 0.0,
             walking: false,
             walker: Walker::default(),
             notch_h: 1.5,
@@ -504,6 +508,8 @@ impl App {
                 self.scene,
                 self.style,
                 self.wall_cut,
+                self.open_fronts,
+                self.explode,
             );
             match img.save(&path) {
                 Ok(()) => self.status = format!("3D snapshot written to {}", path.display()),
@@ -765,7 +771,7 @@ impl App {
                     ui.label("• New → Template gallery shows the starter rooms as pictures, if you would rather rearrange than start from bare walls.");
                     ui.label("• A plan can hold several rooms: the Rooms strip under the top bar switches between them, “+ Add room” adds another (each room keeps its own size, flooring and furniture), and a door can be told which room it leads to. The item list and print sheet cover the whole home.");
                     ui.label("• Got a 3D model of your own furniture (a .glb or .obj file)? “Your 3D models” in the catalogue imports it — it renders with its real shape in 3D and on walks, and travels inside the plan file.");
-                    ui.label("• Presenting a room: the 3D view's Style (Coloured/Clay) and Walls (Full/Half/Low) rows change how it looks, and “Saved views…” stores a whole setup — camera, lighting, style and wall cut — in the plan to jump back to.");
+                    ui.label("• Presenting a room: the 3D view's Style row (Coloured, Clay or the pale Outline drawing look), the Walls row (Full/Half/Low), “Open doors & drawers” and the Exploded view slider change how it reads — and “Saved views…” stores a whole setup in the plan to jump back to.");
                     ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
                 });
             });
@@ -916,6 +922,7 @@ impl App {
                 &self.walker,
                 self.scene,
                 self.style,
+                self.open_fronts,
                 1280,
                 800,
             );
@@ -2102,6 +2109,8 @@ impl App {
                         scene: self.scene,
                         style: self.style,
                         wall_cut: self.wall_cut,
+                        explode: self.explode,
+                        open_fronts: self.open_fronts,
                     });
                     self.view_name.clear();
                     self.mark_dirty();
@@ -2118,6 +2127,8 @@ impl App {
             self.scene = v.scene;
             self.style = v.style;
             self.wall_cut = v.wall_cut;
+            self.explode = v.explode;
+            self.open_fronts = v.open_fronts;
             self.view = View::ThreeD;
             self.walking = false;
             self.show_views = false;
@@ -2927,6 +2938,7 @@ impl App {
                     Style::Clay,
                     "Everything in warm grey — good for judging shapes",
                 ),
+                (Style::Outline, "Technical drawing: pale paper surfaces"),
             ] {
                 if ui
                     .selectable_label(
@@ -2934,6 +2946,7 @@ impl App {
                         match st {
                             Style::Coloured => "Coloured",
                             Style::Clay => "Clay",
+                            Style::Outline => "Outline",
                         },
                     )
                     .on_hover_text(tip)
@@ -2942,6 +2955,9 @@ impl App {
                     self.style = st;
                 }
             }
+            ui.separator();
+            ui.checkbox(&mut self.open_fronts, "Open doors & drawers")
+                .on_hover_text("See inside the wardrobes and cabinets while you walk");
             ui.separator();
             if ui
                 .button("Save PNG of this view")
@@ -3004,6 +3020,7 @@ impl App {
             &self.walker,
             self.scene,
             self.style,
+            self.open_fronts,
             rect.width() as f64,
             rect.height() as f64,
             &self.model_cache,
@@ -3088,6 +3105,7 @@ impl App {
             for (st, label, tip) in [
                 (Style::Coloured, "Coloured", "The room's real colours"),
                 (Style::Clay, "Clay", "Everything in warm grey — good for judging shapes and layout"),
+                (Style::Outline, "Outline", "Technical drawing: pale paper surfaces with dark edges"),
             ] {
                 if ui
                     .selectable_label(self.style == st, label)
@@ -3120,6 +3138,13 @@ impl App {
             {
                 self.show_views = true;
             }
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.open_fronts, "Open doors & drawers")
+                .on_hover_text("Swing wardrobe and cabinet doors open and slide the drawers out, so you can see the storage inside");
+            ui.separator();
+            ui.add(egui::Slider::new(&mut self.explode, 0.0..=1.0).text("Exploded view"))
+                .on_hover_text("Push the furniture apart from the middle of the room, so the layout reads at a glance");
         });
         let rect = ui.available_rect_before_wrap();
         let response = ui.interact(rect, ui.id().with("3d"), Sense::drag());
@@ -3239,6 +3264,7 @@ impl App {
         }
         // Soft shadows under the furniture.
         for it in &self.project.items {
+            let it = &roomforge::view3d::exploded(it, centre, self.explode);
             if let Some(q) = roomforge::view3d::shadow_quad(it) {
                 let (pts, depth) = face_of(&q, &pr);
                 draws.push((
@@ -3256,6 +3282,7 @@ impl App {
         }
         // Furniture: imported models as real geometry, the rest boxes
         for it in &self.project.items {
+            let it = &roomforge::view3d::exploded(it, centre, self.explode);
             if let Some(prep) = roomforge::model::model_id_of(&it.catalog_id)
                 .and_then(|id| self.model_cache.get(&id))
             {
@@ -3303,17 +3330,31 @@ impl App {
                 };
                 draws.push((depth, Draw::Fill(pts, col)));
             }
+            // Front panels (doors, drawers), open or closed.
+            for (quad, bright, prgb) in
+                roomforge::view3d::front_quads(it, if self.open_fronts { 1.0 } else { 0.0 })
+            {
+                let (pts, depth) = face_of(&quad, &pr);
+                draws.push((
+                    depth,
+                    Draw::Fill(
+                        pts,
+                        rgb(shade_scene(style_rgb(prgb, self.style), bright, self.scene)),
+                    ),
+                ));
+            }
         }
         draws.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        let edge_stroke = if self.style == Style::Outline {
+            Stroke::new(1.5_f32, Color32::from_rgb(52, 50, 48))
+        } else {
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 0, 0, 60))
+        };
         for (_, draw) in draws {
             match draw {
                 Draw::Fill(pts, col) => {
                     if pts.len() >= 3 {
-                        painter.add(Shape::convex_polygon(
-                            pts,
-                            col,
-                            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 0, 0, 60)),
-                        ));
+                        painter.add(Shape::convex_polygon(pts, col, edge_stroke));
                     }
                 }
                 Draw::Line(pts, col) => {
