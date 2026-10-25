@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Current project-file format version. Readers accept this and older
 /// versions they know how to migrate (see `Project::from_json`).
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 6;
 
 /// Which wall of the (rectangular) room something is attached to.
 /// Coordinates: origin at the room's south-west corner, +x east, +y north.
@@ -873,6 +873,13 @@ pub struct SavedView {
     pub style: crate::view3d::Style,
     #[serde(default)]
     pub wall_cut: crate::view3d::WallCut,
+    /// Exploded-view amount 0..1 (format v6; defaulted so v5
+    /// files' views load).
+    #[serde(default)]
+    pub explode: f64,
+    /// Whether doors and drawers stood open (format v6).
+    #[serde(default)]
+    pub open_fronts: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1447,6 +1454,8 @@ mod tests {
             scene: crate::view3d::Scene::Evening,
             style: crate::view3d::Style::Clay,
             wall_cut: crate::view3d::WallCut::Low,
+            explode: 0.5,
+            open_fronts: true,
         });
         let json = p.to_json().unwrap();
         let back = Project::from_json(&json).unwrap();
@@ -1456,6 +1465,14 @@ mod tests {
         let v4 = json.replace("\"views\":", "\"views_ignored\":");
         let old = Project::from_json(&v4).unwrap();
         assert!(old.views.is_empty());
+        // A v5 view (no explode/open_fronts keys) loads defaulted.
+        let mut v = serde_json::from_str::<serde_json::Value>(&json).unwrap();
+        let view = &mut v["views"][0];
+        view.as_object_mut().unwrap().remove("explode");
+        view.as_object_mut().unwrap().remove("open_fronts");
+        let legacy = Project::from_json(&v.to_string()).unwrap();
+        assert_eq!(legacy.views[0].explode, 0.0);
+        assert!(!legacy.views[0].open_fronts);
     }
 
     #[test]
