@@ -58,6 +58,7 @@ Think of RoomForge as graph paper that knows how big your sofa is. You tell it h
 ### See it in 3D, take it with you
 
 - **Import your own 3D models**: bring a `.glb` or `.obj` file of a real piece of furniture and place it like any catalog item — it renders with its real shape in the 3D view, the walkthrough and snapshots (the 2D plan shows its footprint). Models travel inside the plan file.
+- **Doors and drawers that open**: wardrobes, cabinets, chests, the oven and more have real front panels — an “Open doors & drawers” toggle in the 3D views swings and slides them open. Beside it, an **Exploded view** slider pulls the furniture apart from the room's centre, and the Style row gains an **Outline** look (pale paper, dark edges) beside Coloured and Clay.
 - **Saved views and presentation styles**: store a whole 3D setup — camera, lighting, a coloured-or-clay render style and a Full/Half/Low wall cut — under a name in the plan, and jump back to it in one click. Clay flattens everything to warm grey for judging shapes; a low wall cut gives the dollhouse view of a layout.
 - **Multi-room plans**: a plan can hold a whole home. The Rooms strip switches between rooms; each keeps its own size, flooring, walls and furniture, doors can be labelled with the room they lead to, and the item list and print sheet cover every room with whole-home totals.
 - One click switches to a **3D doll's-house view** of the same room: drag to orbit, with sliders for turn and tilt. Skirting boards and soft shadows under the furniture make it read as a real room, and **New → Template gallery** offers the starter rooms as picture cards.
@@ -100,7 +101,7 @@ Anything more specific (minimum RAM, GPU models) is **to be confirmed** — it h
 
 ## Installation
 
-**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v1.3.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
+**Easiest — download the release.** On the [Releases page](https://github.com/SeanShaffer88/RoomForge/releases), download `RoomForge-v1.4.0-windows-x64.zip` (or the standalone `roomforge.exe`), unzip it anywhere, and run `roomforge.exe`. No administrator rights, no installer. The executable is not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**. `SHA256SUMS.txt` on the release page lets you verify the download.
 
 **Or build from source** (a couple of minutes):
 
@@ -196,7 +197,7 @@ Continuous integration (GitHub Actions, Windows runner) runs the format check, c
 
 ## Tests
 
-66 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
+71 automated tests cover the library: the data model and file-format round-trips (including files saved by older versions), geometry and door-swing warnings, room outlines and notch cutting, the catalog, unit parsing/formatting, exports, underlay calibration maths, custom-item definitions, the materials quantities, flooring patterns, and the PNG snapshot renderer. Run them with:
 
 ```sh
 cargo test --locked
