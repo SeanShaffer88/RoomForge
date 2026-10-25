@@ -129,3 +129,38 @@ rule), Scan Essentials point clouds and Match Photo (scan/photo
 modelling was excluded 2026-10-22), and general-purpose CAD
 modelling (solid booleans, Follow-Me extrusions — geometry
 authoring, not room planning).
+
+## Madera deep-dive (2026-10-25)
+
+SEAN directed a pass on Madera (madera.app — "Simple furniture
+builder", observed 2026-10-25). What could be observed without an
+account: a template-first start (Closet, Double Closet, Chest of
+drawers, Side Table), a project viewer with an **assembly preview**
+(Normal / **Open doors and drawers** / **Space modules — pull the
+panels apart**) and **canvas render modes** (a lit render, and a
+**Technical drawing — outlines only**). The builder itself sits
+behind an email sign-in and was not entered; nothing behind that
+wall is claimed here.
+
+**Adopted now (v1.4.0, the assembly pack) — its presentation ideas,
+translated from one piece of furniture to a whole room:**
+
+| Madera | RoomForge form |
+|---|---|
+| Open doors and drawers preview | Storage, kitchen and bathroom pieces gain real front panels (wardrobe doors, chest drawers, oven door…) and an **Open doors & drawers** toggle in the 3D views swings/slides them open |
+| Space modules — pull panels apart | **Exploded view** slider: furniture pieces drift apart from the room's centre so the layout reads at a glance |
+| Technical drawing — outlines only | An **Outline** render style beside Coloured/Clay: pale paper surfaces with dark edges, in 3D and snapshots |
+
+**Already had:** template cards as the starting point (the v1.0.0
+template gallery); Remix ≈ duplicate/rename flows.
+
+**Needs SEAN's call — NOT adopted:** Madera's core is designing one
+piece of furniture from modules and panels — a **modular furniture
+configurator**, the category SEAN excluded on 2026-10-22 (see
+AGENTS.md hard rules). Only SEAN can reverse that; if he does, the
+natural form is an extension of the custom-item builder (parts
+list + assembly), not a change to the room planner's scope. Its
+sign-in/cloud model also conflicts with the offline rule, and
+build-oriented outputs (cut lists, selling prices) belong to that
+configurator class — RoomForge's quantities-only materials list
+remains the planner-side equivalent.
