@@ -25,6 +25,7 @@ enum View {
     Plan,
     ThreeD,
     List,
+    Design,
 }
 
 /// One thing to paint in the 3D view, depth-sorted with everything
@@ -95,6 +96,9 @@ pub struct App {
     view_name: String,
     open_fronts: bool,
     explode: f64,
+    // Furniture designer working copy + its own orbit camera.
+    design: roomforge::furniture::FurnitureDesign,
+    design_cam: Camera,
     walking: bool,
     walker: Walker,
     // Room-shape (notch) form state.
@@ -356,6 +360,15 @@ impl App {
             view_name: String::new(),
             open_fronts: false,
             explode: 0.0,
+            design: roomforge::furniture::FurnitureDesign::new(
+                0,
+                roomforge::furniture::Template::Closet,
+            ),
+            design_cam: Camera {
+                yaw_deg: 35.0,
+                pitch_deg: 50.0,
+                scale: 150.0,
+            },
             walking: false,
             walker: Walker::default(),
             notch_h: 1.5,
@@ -602,7 +615,7 @@ impl eframe::App for App {
         self.top_bar(ctx);
         self.room_tabs(ctx);
         self.bottom_bar(ctx);
-        if self.view != View::List {
+        if self.view != View::List && self.view != View::Design {
             self.catalog_panel(ctx);
             self.properties_panel(ctx);
         }
@@ -610,6 +623,7 @@ impl eframe::App for App {
             View::Plan => self.plan_view(ui),
             View::ThreeD => self.three_d_view(ui),
             View::List => self.list_view(ui),
+            View::Design => self.design_view(ui),
         });
 
         // A catalog drag that ended anywhere else just disarms.
@@ -654,6 +668,9 @@ impl App {
                 self.view = View::ThreeD;
             } else if i.key_pressed(egui::Key::Num3) {
                 self.view = View::List;
+                self.walking = false;
+            } else if i.key_pressed(egui::Key::Num4) {
+                self.view = View::Design;
                 self.walking = false;
             } else if i.key_pressed(egui::Key::Escape) {
                 self.placing = None;
@@ -772,6 +789,7 @@ impl App {
                     ui.label("• A plan can hold several rooms: the Rooms strip under the top bar switches between them, “+ Add room” adds another (each room keeps its own size, flooring and furniture), and a door can be told which room it leads to. The item list and print sheet cover the whole home.");
                     ui.label("• Got a 3D model of your own furniture (a .glb or .obj file)? “Your 3D models” in the catalogue imports it — it renders with its real shape in 3D and on walks, and travels inside the plan file.");
                     ui.label("• Presenting a room: the 3D view's Style row (Coloured, Clay or the pale Outline drawing look), the Walls row (Full/Half/Low), “Open doors & drawers” and the Exploded view slider change how it reads — and “Saved views…” stores a whole setup in the plan to jump back to.");
+                    ui.label("• Design your own furniture: the 🪑 Designer (press 4) builds a closet, chest of drawers, side table or bookcase from panels — set the size, drawers, shelves and finish, watch it as parts (open the doors, explode it), then “Add to room”. Its cut list (panel sizes and quantities, never prices) sits under the controls, as a CSV export, and on the print sheet.");
                     ui.label("• Pros: every measurement accepts typed values in either unit system (try “10' 6\\\"” or “2.4 m”), exports include true-scale 1:50 and 1:100 print plans, and the 3D view's “Save PNG snapshot” renders a shareable picture of the room.");
                 });
             });
@@ -1020,6 +1038,8 @@ impl App {
                     .on_hover_text("Orbit the room in 3D (press 2)");
                 ui.selectable_value(&mut self.view, View::List, "Item list")
                     .on_hover_text("Everything placed, grouped (press 3)");
+                ui.selectable_value(&mut self.view, View::Design, "🪑 Designer")
+                    .on_hover_text("Design your own furniture, piece by piece (press 4)");
                 ui.separator();
                 ui.checkbox(&mut self.snap_enabled, "Snap 5 cm")
                     .on_hover_text("Snap furniture to a 5 cm grid while dragging");
@@ -1132,6 +1152,277 @@ impl App {
         });
     }
 
+    /// Save the designer's working copy into the plan (updating the
+    /// saved design with the same id, or adding a new one). With
+    /// `place`, also arm placement and jump to the plan.
+    fn save_working_design(&mut self, place: bool) {
+        self.snapshot();
+        let mut d = self.design.clone().clamped();
+        if d.id == 0 || !self.project.furniture.iter().any(|f| f.id == d.id) {
+            d.id = self.project.alloc_id();
+        }
+        if let Some(slot) = self.project.furniture.iter_mut().find(|f| f.id == d.id) {
+            *slot = d.clone();
+        } else {
+            self.project.furniture.push(d.clone());
+        }
+        self.design = d.clone();
+        self.dirty = true;
+        if place {
+            self.placing = Some(PlaceTemplate {
+                catalog_id: d.catalog_id(),
+                name: d.name.clone(),
+                category: d.template.category().to_string(),
+                width_m: d.width_m,
+                depth_m: d.depth_m,
+                height_m: d.height_m,
+                rgb: d.finish_rgb,
+            });
+            self.view = View::Plan;
+            self.status = "Design saved — click in the room to place it".into();
+        } else {
+            self.status = format!("Saved design “{}”", d.name);
+        }
+    }
+
+    /// Load a saved design into the designer for editing.
+    fn load_design(&mut self, id: u64) {
+        if let Some(d) = self.project.furniture.iter().find(|f| f.id == id) {
+            self.design = d.clone();
+            self.view = View::Design;
+        }
+    }
+
+    /// The furniture designer: template + dimensions + finish on the
+    /// left, a live parts preview in the middle, the cut list below
+    /// the controls.
+    fn design_view(&mut self, ui: &mut egui::Ui) {
+        use roomforge::furniture::{finishes, Template};
+        egui::SidePanel::left("design_controls")
+            .exact_width(320.0)
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Design a piece of furniture");
+                    ui.label(
+                        "Pick a template, size it, choose a finish — the parts \
+                         and cut list update as you go. Designed pieces place \
+                         into rooms like any other furniture, doors and all.",
+                    );
+                    ui.separator();
+                    ui.label(egui::RichText::new("Template").strong());
+                    ui.horizontal_wrapped(|ui| {
+                        for t in Template::all() {
+                            if ui
+                                .selectable_label(self.design.template == t, t.label())
+                                .clicked()
+                                && self.design.template != t
+                            {
+                                let keep = (
+                                    self.design.id,
+                                    self.design.name.clone(),
+                                    self.design.finish_rgb,
+                                );
+                                self.design =
+                                    roomforge::furniture::FurnitureDesign::new(keep.0, t);
+                                self.design.name = keep.1;
+                                self.design.finish_rgb = keep.2;
+                            }
+                        }
+                    });
+                    ui.separator();
+                    ui.label(egui::RichText::new("Name").strong());
+                    ui.text_edit_singleline(&mut self.design.name);
+                    ui.separator();
+                    ui.label(egui::RichText::new("Overall size").strong());
+                    for (label, v) in [
+                        ("Width", &mut self.design.width_m),
+                        ("Depth", &mut self.design.depth_m),
+                        ("Height", &mut self.design.height_m),
+                    ] {
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            ui.add(
+                                egui::DragValue::new(v)
+                                    .speed(0.01)
+                                    .range(0.24..=3.0)
+                                    .suffix(" m"),
+                            );
+                        });
+                    }
+                    let t = self.design.template;
+                    if t.uses_drawers() {
+                        let (lo, hi) = t.drawer_range();
+                        ui.horizontal(|ui| {
+                            ui.label("Drawers");
+                            ui.add(
+                                egui::DragValue::new(&mut self.design.drawers).range(lo..=hi),
+                            );
+                        });
+                    }
+                    if t.uses_shelves() {
+                        let (lo, hi) = t.shelf_range();
+                        ui.horizontal(|ui| {
+                            ui.label("Shelves");
+                            ui.add(
+                                egui::DragValue::new(&mut self.design.shelves).range(lo..=hi),
+                            );
+                        });
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Finish").strong());
+                    ui.horizontal_wrapped(|ui| {
+                        for (name, c) in finishes() {
+                            let btn = egui::Button::new("  ")
+                                .fill(Color32::from_rgb(c[0], c[1], c[2]));
+                            if ui.add(btn).on_hover_text(name).clicked() {
+                                self.design.finish_rgb = c;
+                            }
+                        }
+                        let mut col = self.design.finish_rgb;
+                        if ui
+                            .color_edit_button_srgb(&mut col)
+                            .on_hover_text("Custom colour")
+                            .changed()
+                        {
+                            self.design.finish_rgb = col;
+                        }
+                    });
+                    ui.separator();
+                    ui.checkbox(&mut self.open_fronts, "Open doors & drawers");
+                    ui.horizontal(|ui| {
+                        ui.label("Exploded view");
+                        ui.add(egui::Slider::new(&mut self.explode, 0.0..=1.0).show_value(false));
+                    });
+                    ui.separator();
+                    let parts = self.design.parts().len();
+                    ui.label(format!(
+                        "{} parts · {:.2} m² of panel",
+                        parts,
+                        self.design.board_area_m2()
+                    ));
+                    if ui
+                        .button("＋ Add to room")
+                        .on_hover_text("Save this design and place it in the room")
+                        .clicked()
+                    {
+                        self.save_working_design(true);
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Save design").clicked() {
+                            self.save_working_design(false);
+                        }
+                        if ui.button("Cut list (CSV)").clicked() {
+                            if let Some(p) = save_dialog("CSV cut list", "csv", "cut-list") {
+                                let csv = self.design.cut_list_csv();
+                                self.export_to(p, &csv, "Cut list");
+                            }
+                        }
+                    });
+                    if self.design.id != 0
+                        && self.project.furniture.iter().any(|f| f.id == self.design.id)
+                    {
+                        ui.label(
+                            egui::RichText::new("Editing a saved design — Save applies your changes.")
+                                .color(Color32::from_rgb(0xA8, 0xA8, 0xA8)),
+                        );
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Cut list").strong());
+                    ui.label(
+                        egui::RichText::new("Panel sizes to cut, millimetres. Quantities only — no prices, by design.")
+                            .color(Color32::from_rgb(0xA8, 0xA8, 0xA8)),
+                    );
+                    for e in self.design.cut_list() {
+                        ui.label(format!(
+                            "{} ×{} — {} × {} × {} mm",
+                            e.name,
+                            e.qty,
+                            (e.length_m * 1000.0).round() as i64,
+                            (e.width_m * 1000.0).round() as i64,
+                            (e.thickness_m * 1000.0).round() as i64
+                        ));
+                    }
+                });
+            });
+        // Live preview of the parts.
+        let design = self.design.clone().clamped();
+        self.design = design.clone();
+        let rect = ui.available_rect_before_wrap();
+        let response = ui.allocate_rect(rect, egui::Sense::drag());
+        if response.dragged() {
+            let d = response.drag_delta();
+            self.design_cam.yaw_deg += d.x as f64 * 0.4;
+            self.design_cam.pitch_deg =
+                (self.design_cam.pitch_deg - d.y as f64 * 0.4).clamp(10.0, 80.0);
+        }
+        if response.hovered() {
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            if scroll != 0.0 {
+                self.design_cam.scale =
+                    (self.design_cam.scale * (1.0 + scroll as f64 * 0.001)).clamp(40.0, 700.0);
+            }
+        }
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, Color32::from_rgb(0x08, 0x08, 0x08));
+        let cam = self.design_cam;
+        let origin = (
+            rect.center().x as f64,
+            (rect.center().y + rect.height() * 0.22) as f64,
+        );
+        let pr = |p: (f64, f64, f64)| {
+            let (sx, sy, depth) = project3d(p, (0.0, 0.0), &cam, origin);
+            (Pos2::new(sx as f32, sy as f32), depth)
+        };
+        let mut draws: Vec<(f64, egui::Shape)> = Vec::new();
+        // Ground the piece stands on.
+        let (gw, gd) = (design.width_m * 0.85 + 0.3, design.depth_m * 0.85 + 0.3);
+        let ground = [
+            (-gw, -gd, 0.0),
+            (gw, -gd, 0.0),
+            (gw, gd, 0.0),
+            (-gw, gd, 0.0),
+        ];
+        let (pts, depth) = face_of(&ground, &pr);
+        draws.push((
+            depth,
+            egui::Shape::convex_polygon(pts, Color32::from_rgb(0x1c, 0x1c, 0x1c), Stroke::NONE),
+        ));
+        let faces = roomforge::furniture::design_faces(
+            &design,
+            if self.open_fronts { 1.0 } else { 0.0 },
+            self.explode,
+        );
+        for (quad, bright, frgb) in &faces {
+            let (pts, depth) = face_of(quad, &pr);
+            let col = rgb(shade_scene(
+                style_rgb(*frgb, self.style),
+                *bright,
+                Scene::Day,
+            ));
+            let stroke = if self.style == Style::Outline {
+                Stroke::new(1.5_f32, rgb([52, 50, 48]))
+            } else {
+                Stroke::NONE
+            };
+            draws.push((depth, egui::Shape::convex_polygon(pts, col, stroke)));
+        }
+        draws.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        painter.extend(draws.into_iter().map(|(_, s)| s));
+        painter.text(
+            rect.center_bottom() - egui::vec2(0.0, 10.0),
+            egui::Align2::CENTER_BOTTOM,
+            format!(
+                "{} · {} wide × {} deep × {} high · drag to orbit, scroll to zoom",
+                design.name,
+                fmt_len(design.width_m, self.imperial),
+                fmt_len(design.depth_m, self.imperial),
+                fmt_len(design.height_m, self.imperial)
+            ),
+            egui::FontId::proportional(13.0),
+            Color32::from_rgb(0xA8, 0xA8, 0xA8),
+        );
+    }
+
     fn catalog_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("catalog")
             .default_width(215.0)
@@ -1194,7 +1485,82 @@ impl App {
                     }
                     self.custom_items_section(ui);
                     self.custom_models_section(ui);
+                    self.designs_section(ui);
                 });
+            });
+    }
+
+    /// The "Your designs" catalogue section: pieces from the
+    /// furniture designer, ready to place, edit or delete.
+    fn designs_section(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Your designs — from the Designer")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label("Furniture you designed piece by piece. Click one to place it; ✎ opens it in the Designer; ✕ removes the design and its placed pieces.");
+                let mut place: Option<PlaceTemplate> = None;
+                let mut edit: Option<u64> = None;
+                let mut delete: Option<u64> = None;
+                for d in &self.project.furniture {
+                    ui.horizontal(|ui| {
+                        let label = format!(
+                            "{}  ({} × {})",
+                            d.name,
+                            fmt_len(d.width_m, self.imperial),
+                            fmt_len(d.depth_m, self.imperial)
+                        );
+                        let selected = self.placing.as_ref().map(|p| p.catalog_id.clone())
+                            == Some(d.catalog_id());
+                        if ui
+                            .selectable_label(selected, label)
+                            .on_hover_text("Click, then click in the room to place it")
+                            .clicked()
+                        {
+                            place = Some(PlaceTemplate {
+                                catalog_id: d.catalog_id(),
+                                name: d.name.clone(),
+                                category: d.template.category().to_string(),
+                                width_m: d.width_m,
+                                depth_m: d.depth_m,
+                                height_m: d.height_m,
+                                rgb: d.finish_rgb,
+                            });
+                        }
+                        if ui.small_button("✎").on_hover_text("Open in the Designer").clicked() {
+                            edit = Some(d.id);
+                        }
+                        if ui
+                            .small_button("✕")
+                            .on_hover_text("Delete this design and every placed piece of it")
+                            .clicked()
+                        {
+                            delete = Some(d.id);
+                        }
+                    });
+                }
+                if ui.button("＋ New design…").clicked() {
+                    self.design = roomforge::furniture::FurnitureDesign::new(
+                        0,
+                        roomforge::furniture::Template::Closet,
+                    );
+                    self.view = View::Design;
+                }
+                if let Some(t) = place {
+                    self.status = format!("Placing: {}. Click in the room to drop it.", t.name);
+                    self.placing = Some(t);
+                    self.view = View::Plan;
+                }
+                if let Some(id) = edit {
+                    self.load_design(id);
+                }
+                if let Some(id) = delete {
+                    self.snapshot();
+                    let n = self.project.delete_design(id);
+                    self.dirty = true;
+                    self.status = format!(
+                        "Design deleted ({n} placed piece{} removed)",
+                        if n == 1 { "" } else { "s" }
+                    );
+                }
             });
     }
 
@@ -2149,6 +2515,7 @@ impl App {
         };
         let mut delete = false;
         let mut duplicate = false;
+        let mut edit_design: Option<u64> = None;
         let model_name = self
             .project
             .items
@@ -2156,11 +2523,23 @@ impl App {
             .find(|i| i.id == id)
             .and_then(|it| self.project.model_def(&it.catalog_id))
             .map(|d| d.name.clone());
+        let design_id = self
+            .project
+            .items
+            .iter()
+            .find(|i| i.id == id)
+            .and_then(|it| roomforge::furniture::furn_id_of(&it.catalog_id));
         if let Some(it) = self.project.items.iter_mut().find(|i| i.id == id) {
             if let Some(name) = &model_name {
                 ui.label(format!(
                     "3D model: {name} — real shape in the 3D views; the plan shows its footprint."
                 ));
+            }
+            if let Some(did) = design_id {
+                ui.label("Your design — built from parts in the Designer.");
+                if ui.button("✎ Edit its design…").clicked() {
+                    edit_design = Some(did);
+                }
             }
             ui.horizontal(|ui| {
                 ui.label("Name");
@@ -2238,6 +2617,9 @@ impl App {
             });
             ui.label("Keys: arrow keys nudge it · R turns it · Delete removes it. (Full guide: Help, or F1.)");
             self.mark_dirty();
+        }
+        if let Some(did) = edit_design {
+            self.load_design(did);
         }
         if duplicate {
             self.snapshot();
@@ -3310,6 +3692,35 @@ impl App {
                 }
                 continue;
             }
+            // Designed pieces draw as their real parts.
+            if let Some(design) = self.project.design_for(&it.catalog_id) {
+                let faces = roomforge::furniture::design_faces(
+                    design,
+                    if self.open_fronts { 1.0 } else { 0.0 },
+                    0.0,
+                );
+                let placed = roomforge::view3d::place_faces(
+                    &faces,
+                    it,
+                    design.width_m,
+                    design.depth_m,
+                    design.height_m,
+                );
+                for (quad, bright, frgb) in &placed {
+                    let (pts, depth) = face_of(quad, &pr);
+                    let col = if self.selected_item == Some(it.id) && *bright == 1.0 {
+                        RED
+                    } else {
+                        rgb(shade_scene(
+                            style_rgb(*frgb, self.style),
+                            *bright,
+                            self.scene,
+                        ))
+                    };
+                    draws.push((depth, Draw::Fill(pts, col)));
+                }
+                continue;
+            }
             let corners = box_corners(it);
             for (idx, bright) in box_faces() {
                 let quad = [
@@ -3489,7 +3900,38 @@ impl App {
                 fmt_len(totals.skirting_m, imp),
                 fmt_len(totals.perimeter_m, imp)
             ));
+            self.designs_list(ui);
         });
+    }
+
+    /// The plan's furniture designs, summarised for the list view:
+    /// name, size, parts and panel area. Full cut lists live in the
+    /// Designer and on the print sheet.
+    fn designs_list(&mut self, ui: &mut egui::Ui) {
+        if self.project.furniture.is_empty() {
+            return;
+        }
+        let imp = self.imperial;
+        ui.separator();
+        ui.heading("Your furniture designs");
+        for d in &self.project.furniture {
+            ui.label(format!(
+                "{} — {} · {} × {} × {} · {} parts · {:.2} m² of panel",
+                d.name,
+                d.template.label(),
+                fmt_len(d.width_m, imp),
+                fmt_len(d.depth_m, imp),
+                fmt_len(d.height_m, imp),
+                d.parts().len(),
+                d.board_area_m2()
+            ));
+        }
+        ui.label(
+            egui::RichText::new(
+                "Full cut lists: open a design in the Designer, or export the print sheet.",
+            )
+            .color(Color32::from_rgb(0xA8, 0xA8, 0xA8)),
+        );
     }
 
     fn list_view(&mut self, ui: &mut egui::Ui) {
@@ -3555,6 +3997,7 @@ impl App {
                     ui.label(format!("{}. {}", i + 1, a.text));
                 }
             }
+            self.designs_list(ui);
             ui.separator();
             ui.strong("Materials — quantities only (no prices, by design)");
             let m = self.project.materials();
