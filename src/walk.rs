@@ -194,11 +194,13 @@ pub struct WalkLayer {
 /// pixels, sorted far to near. Mirrors the orbit renderer's scene:
 /// floor with pattern, walls by facing, furniture boxes, window
 /// glass last among the fills.
+#[allow(clippy::too_many_arguments)]
 pub fn walk_layers(
     p: &Project,
     w: &Walker,
     scene: Scene,
     style: Style,
+    open_fronts: bool,
     width: f64,
     height: f64,
     models: &std::collections::HashMap<u64, crate::model3d::PreparedModel>,
@@ -343,6 +345,17 @@ pub fn walk_layers(
                 &mut layers,
             );
         }
+        // Front panels (doors, drawers), open or closed.
+        for (quad, bright, rgb) in
+            crate::view3d::front_quads(it, if open_fronts { 1.0 } else { 0.0 })
+        {
+            push_poly(
+                &quad,
+                shade_scene(style_rgb(rgb, style), bright, scene),
+                0.0,
+                &mut layers,
+            );
+        }
     }
     // Window glass.
     for o in &p.openings {
@@ -432,6 +445,7 @@ mod tests {
             &w,
             Scene::Day,
             Style::Coloured,
+            false,
             900.0,
             600.0,
             &std::collections::HashMap::new(),
@@ -445,6 +459,7 @@ mod tests {
             &w,
             Scene::Night,
             Style::Coloured,
+            false,
             900.0,
             600.0,
             &std::collections::HashMap::new(),
