@@ -5,6 +5,7 @@
 
 pub mod catalog;
 pub mod export;
+pub mod furniture;
 pub mod geometry;
 pub mod io;
 pub mod model;
