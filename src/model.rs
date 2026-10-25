@@ -5,9 +5,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::furniture::FurnitureDesign;
+
 /// Current project-file format version. Readers accept this and older
 /// versions they know how to migrate (see `Project::from_json`).
-pub const FORMAT_VERSION: u32 = 6;
+pub const FORMAT_VERSION: u32 = 7;
 
 /// Which wall of the (rectangular) room something is attached to.
 /// Coordinates: origin at the room's south-west corner, +x east, +y north.
@@ -901,6 +903,10 @@ pub struct Project {
     /// Saved 3D views (format v5).
     #[serde(default)]
     pub views: Vec<SavedView>,
+    /// Furniture designs from the designer (format v7). Placed
+    /// pieces reference them with catalog ids of `furn-<id>`.
+    #[serde(default)]
+    pub furniture: Vec<FurnitureDesign>,
     /// The other rooms of the plan (multi-room, format v3). The
     /// active room's contents live in the fields above.
     #[serde(default)]
@@ -926,6 +932,7 @@ impl Default for Project {
             custom_items: Vec::new(),
             custom_models: Vec::new(),
             views: Vec::new(),
+            furniture: Vec::new(),
             rooms: Vec::new(),
             active_room_id: 1,
             next_id: 2,
@@ -967,6 +974,29 @@ impl Project {
     pub fn model_def(&self, catalog_id: &str) -> Option<&CustomModelDef> {
         let id = model_id_of(catalog_id)?;
         self.custom_models.iter().find(|d| d.id == id)
+    }
+
+    /// The furniture design a `furn-<id>` catalog id refers to.
+    pub fn design_for(&self, catalog_id: &str) -> Option<&FurnitureDesign> {
+        let id = crate::furniture::furn_id_of(catalog_id)?;
+        self.furniture.iter().find(|f| f.id == id)
+    }
+
+    /// Delete a furniture design and every placed piece of it
+    /// across all rooms. Returns how many pieces were removed.
+    pub fn delete_design(&mut self, id: u64) -> usize {
+        self.furniture.retain(|f| f.id != id);
+        let cat = format!("furn-{id}");
+        let mut removed = 0;
+        let before = self.items.len();
+        self.items.retain(|i| i.catalog_id != cat);
+        removed += before - self.items.len();
+        for r in &mut self.rooms {
+            let b = r.items.len();
+            r.items.retain(|i| i.catalog_id != cat);
+            removed += b - r.items.len();
+        }
+        removed
     }
 
     /// Furniture pieces across the whole plan.
@@ -1101,6 +1131,7 @@ impl Project {
             custom_items: self.custom_items.clone(),
             custom_models: self.custom_models.clone(),
             views: self.views.clone(),
+            furniture: self.furniture.clone(),
             rooms: Vec::new(),
             active_room_id: s.id,
             next_id: self.next_id,
@@ -1169,6 +1200,12 @@ impl Project {
             .chain(p.custom_items.iter().map(|c| c.id))
             .chain(p.custom_models.iter().map(|c| c.id))
             .chain(p.views.iter().map(|v| v.id))
+            .chain(p.furniture.iter().map(|f| f.id))
+            .chain(
+                p.items
+                    .iter()
+                    .filter_map(|i| crate::furniture::furn_id_of(&i.catalog_id)),
+            )
             .chain(stored_ids)
             .max()
             .unwrap_or(0);
@@ -1194,6 +1231,26 @@ impl Project {
         for (k, i) in dup_indices.iter().enumerate() {
             p.rooms[*i].id = fresh[k];
             seen.push(fresh[k]);
+        }
+        // Furniture designs: clamp to buildable and keep ids
+        // unique (a duplicated id would make two designs answer to
+        // the same placed pieces).
+        for f in &mut p.furniture {
+            let c = f.clone();
+            *f = c.clamped();
+        }
+        let mut fseen: Vec<u64> = Vec::new();
+        let mut fdups: Vec<usize> = Vec::new();
+        for (i, f) in p.furniture.iter().enumerate() {
+            if fseen.contains(&f.id) {
+                fdups.push(i);
+            } else {
+                fseen.push(f.id);
+            }
+        }
+        let ffresh: Vec<u64> = fdups.iter().map(|_| p.alloc_id()).collect();
+        for (k, i) in fdups.iter().enumerate() {
+            p.furniture[*i].id = ffresh[k];
         }
         let valid: Vec<u64> = seen.clone();
         for o in &mut p.openings {
@@ -1871,5 +1928,44 @@ mod tests {
         let old = Project::from_json(legacy).unwrap();
         assert!(old.annotations.is_empty());
         assert_eq!(old.room.wall_thickness_m, 0.1);
+    }
+
+    #[test]
+    fn furniture_designs_round_trip_and_resolve() {
+        let mut p = Project::default();
+        let id = p.alloc_id();
+        let mut d = crate::furniture::FurnitureDesign::new(id, crate::furniture::Template::Closet);
+        d.name = "Hall closet".into();
+        p.furniture.push(d);
+        let json = p.to_json().unwrap();
+        let q = Project::from_json(&json).unwrap();
+        assert_eq!(q.furniture.len(), 1);
+        assert_eq!(
+            q.design_for(&format!("furn-{id}")).unwrap().name,
+            "Hall closet"
+        );
+        // A v6 file (no furniture key) loads with no designs.
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v.as_object_mut().unwrap().remove("furniture");
+        let q2 = Project::from_json(&v.to_string()).unwrap();
+        assert!(q2.furniture.is_empty());
+        // Deleting a design removes its placed pieces.
+        let mut p2 = q.clone();
+        let item_id = p2.alloc_id();
+        p2.items.push(PlacedItem {
+            id: item_id,
+            catalog_id: format!("furn-{id}"),
+            name: "Hall closet".into(),
+            category: "Storage".into(),
+            x_m: 1.0,
+            y_m: 1.0,
+            width_m: 1.2,
+            depth_m: 0.6,
+            height_m: 2.1,
+            rotation_deg: 0.0,
+            rgb: [176, 141, 102],
+        });
+        assert_eq!(p2.delete_design(id), 1);
+        assert!(p2.items.is_empty() && p2.furniture.is_empty());
     }
 }
